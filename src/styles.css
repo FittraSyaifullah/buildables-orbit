@@ -23,23 +23,40 @@ html, body {
 }
 
 #map-container {
-  position: absolute; inset: 0;
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   cursor: grab;
+  z-index: 0;
 }
+
+#map-container .mapboxgl-canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
+
 #map-container.map-container--ready { cursor: grab; }
-#map-container:active { cursor: grabbing; }
+
+.mapboxgl-ctrl-bottom-right {
+  bottom: 28px !important;
+  right: 24px !important;
+  z-index: 5;
+}
+
+.mapboxgl-ctrl-bottom-right .mapboxgl-ctrl {
+  box-shadow: var(--shadow);
+  border-radius: 8px;
+  overflow: hidden;
+}
 
 .map-loading {
-  position: absolute; inset: 0; z-index: 6;
+  position: fixed; inset: 0; z-index: 6;
   display: flex; align-items: center; justify-content: center;
   background: var(--bg);
   color: var(--text-muted);
   font-size: 0.875rem;
   pointer-events: none;
-}
-
-.mapboxgl-ctrl-top-right {
-  top: 64px !important;
 }
 
 .map-pin {
@@ -138,6 +155,8 @@ html, body {
   padding: 14px 16px;
   box-shadow: var(--shadow);
   font-size: 0.75rem;
+  max-width: min(220px, calc(100vw - 48px));
+  pointer-events: auto;
 }
 .legend-title {
   font-family: var(--font-display);
@@ -182,13 +201,18 @@ html, body {
 }
 
 .hint-bar {
-  position: fixed; bottom: 24px; right: 24px; z-index: 10;
+  position: fixed; bottom: 24px; left: 50%; z-index: 10;
+  transform: translateX(-50%);
   font-size: 0.75rem; color: var(--text-muted);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 8px 14px;
   box-shadow: var(--shadow);
+  max-width: min(420px, calc(100vw - 48px));
+  pointer-events: none;
+  text-align: center;
+  white-space: nowrap;
 }
 
 #pin-tooltip {
