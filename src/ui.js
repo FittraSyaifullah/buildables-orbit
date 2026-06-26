@@ -1,5 +1,6 @@
-import { PARTNER_TYPES, TAG_LAYOUT } from './constants.js';
+import { PARTNER_TYPES } from './constants.js';
 import { escapeHtml } from './utils.js';
+import { flyToPartner } from './map.js';
 import {
   isSynopsisViaServer,
   isProductionEnv,
@@ -13,28 +14,16 @@ import {
 } from './synopsis.js';
 import { searchPlaces } from './geocode.js';
 
-export function buildFloatingTags(partners, activeTag, onTagClick) {
-  const el = document.getElementById('floating-tags');
-  if (!el) return;
-
-  const tags = [...new Set(partners.flatMap((p) => p.tags || []).map((t) => t.toLowerCase()))].slice(0, TAG_LAYOUT.length);
-
-  el.innerHTML = tags
-    .map((tag, i) => {
-      const pos = TAG_LAYOUT[i] || TAG_LAYOUT[TAG_LAYOUT.length - 1];
-      const active = activeTag && activeTag.toLowerCase() === tag;
-      return `<button
-        type="button"
-        class="floating-tag${active ? ' floating-tag--active' : ''}"
-        style="top:${pos.top};left:${pos.left}"
-        data-tag="${escapeHtml(tag)}"
-      >${escapeHtml(tag)}</button>`;
-    })
-    .join('');
-
-  el.querySelectorAll('.floating-tag').forEach((btn) => {
-    btn.addEventListener('click', () => onTagClick?.(btn.dataset.tag));
-  });
+export function buildLegend() {
+  const el = document.getElementById('legend');
+  el.innerHTML =
+    '<div class="legend-title">Relationship types</div>' +
+    Object.entries(PARTNER_TYPES)
+      .map(
+        ([, { label, color }]) =>
+          `<div class="legend-item"><span class="legend-dot" style="background:${color}"></span>${label}</div>`,
+      )
+      .join('');
 }
 
 export function populateTypeSelect(select) {
@@ -72,25 +61,23 @@ export function createUI(handlers) {
 
   function openPanel(id) {
     selectedPartnerId = id;
-    handlers.onPartnerSelect?.(id);
-
     const partner = handlers.getPartners().find((p) => p.id === id);
     if (!partner) return;
 
-    handlers.flyToPartner?.(partner);
+    flyToPartner(partner);
 
-    const typeInfo = PARTNER_TYPES[partner.type] || { label: partner.type, color: '#888' };
+    const typeInfo = PARTNER_TYPES[partner.type] || { label: partner.type, color: '#64748b' };
     const cachedSynopsis = getSynopsisCache().get(id);
 
     document.getElementById('panel-header-content').innerHTML = `
       <div class="partner-name">${escapeHtml(partner.name)}</div>
-      <div class="type-badge">${escapeHtml(typeInfo.label)}</div>
+      <div class="type-badge"><span class="dot" style="background:${typeInfo.color}"></span>${escapeHtml(typeInfo.label)}</div>
     `;
 
     const tagsHtml =
       partner.tags?.length ?
         `<div class="tags">${partner.tags.map((t) => `<span class="tag">${escapeHtml(t)}</span>`).join('')}</div>`
-      : '<span class="panel-muted">None</span>';
+      : '<span style="color:var(--text-muted);font-size:0.875rem">None</span>';
 
     document.getElementById('panel-body').innerHTML = `
       <div class="panel-section">
@@ -107,7 +94,7 @@ export function createUI(handlers) {
         ${tagsHtml}
       </div>
       <div class="panel-section">
-        <div class="panel-section-label">Synopsis</div>
+        <div class="panel-section-label">Web synopsis</div>
         <div id="synopsis-content">${renderSynopsis(cachedSynopsis)}</div>
         <button class="btn" id="btn-synopsis" type="button" style="margin-top:10px">
           ${cachedSynopsis && !cachedSynopsis.error ? 'Refresh synopsis' : 'Generate synopsis'}
@@ -129,7 +116,6 @@ export function createUI(handlers) {
 
   function closePanel() {
     selectedPartnerId = null;
-    handlers.onPartnerDeselect?.();
     document.getElementById('panel-overlay').classList.remove('open');
     document.getElementById('detail-panel').classList.remove('open');
   }
@@ -151,7 +137,6 @@ export function createUI(handlers) {
   }
 
   function openForm(partner, lat, lng) {
-    closeSearch();
     const isEdit = !!partner;
     document.getElementById('form-modal-title').textContent = isEdit ? 'Edit partner' : 'Add partner';
     document.getElementById('form-id').value = partner?.id || '';
@@ -181,7 +166,7 @@ export function createUI(handlers) {
     try {
       const results = await searchPlaces(query);
       if (!results.length) {
-        resultsEl.innerHTML = '<p class="form-hint form-hint--error">No results found.</p>';
+        resultsEl.innerHTML = '<p class="form-hint form-hint--error">No results found. Try a different search.</p>';
         return;
       }
 
@@ -262,55 +247,6 @@ export function createUI(handlers) {
     document.getElementById('settings-modal-overlay').classList.remove('open');
   }
 
-  function openSearch() {
-    document.getElementById('search-modal-overlay').classList.add('open');
-    const input = document.getElementById('search-input');
-    input.value = '';
-    renderSearchResults('');
-    setTimeout(() => input.focus(), 100);
-  }
-
-  function closeSearch() {
-    document.getElementById('search-modal-overlay').classList.remove('open');
-  }
-
-  function renderSearchResults(query) {
-    const resultsEl = document.getElementById('search-results');
-    const q = query.trim().toLowerCase();
-    const list = handlers.getFilteredPartners?.() || handlers.getPartners();
-
-    const matches = q ?
-      list.filter(
-        (p) =>
-          p.name.toLowerCase().includes(q) ||
-          p.location?.toLowerCase().includes(q) ||
-          p.tags?.some((t) => t.toLowerCase().includes(q)),
-      )
-    : list;
-
-    if (!matches.length) {
-      resultsEl.innerHTML = '<p class="form-hint">No partners found.</p>';
-      return;
-    }
-
-    resultsEl.innerHTML = matches
-      .map(
-        (p) =>
-          `<button type="button" class="search-result" data-id="${escapeHtml(p.id)}">
-            <span class="search-result-name">${escapeHtml(p.name)}</span>
-            <span class="search-result-meta">${escapeHtml(p.location || '')}</span>
-          </button>`,
-      )
-      .join('');
-
-    resultsEl.querySelectorAll('.search-result').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        closeSearch();
-        openPanel(btn.dataset.id);
-      });
-    });
-  }
-
   function showConfirm(text, onOk) {
     document.getElementById('confirm-modal-text').innerHTML = text;
     confirmCallback = onOk;
@@ -336,11 +272,6 @@ export function createUI(handlers) {
   populateTypeSelect(document.getElementById('form-type'));
 
   document.getElementById('btn-settings').addEventListener('click', openSettings);
-  document.getElementById('btn-search').addEventListener('click', openSearch);
-  document.getElementById('btn-add-partner').addEventListener('click', () => openForm());
-  document.getElementById('search-input').addEventListener('input', (e) => renderSearchResults(e.target.value));
-  document.querySelectorAll('.search-modal-close').forEach((el) => el.addEventListener('click', closeSearch));
-
   document.getElementById('panel-close').addEventListener('click', closePanel);
   document.getElementById('panel-overlay').addEventListener('click', closePanel);
 
@@ -375,7 +306,6 @@ export function createUI(handlers) {
       closePanel();
       closeForm();
       closeSettings();
-      closeSearch();
       closeConfirm();
     }
   });
@@ -385,6 +315,5 @@ export function createUI(handlers) {
     openForm,
     handleHover,
     updateSettingsStatus,
-    renderSearchResults,
   };
 }
