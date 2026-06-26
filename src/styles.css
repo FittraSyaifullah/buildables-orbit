@@ -39,8 +39,8 @@ html, body {
 #map-container.map-container--ready { cursor: grab; }
 
 .mapboxgl-ctrl-bottom-right {
-  bottom: 28px !important;
-  right: 24px !important;
+  bottom: 72px !important;
+  right: 20px !important;
   z-index: 5;
 }
 
@@ -60,11 +60,11 @@ html, body {
 }
 
 .map-pin {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
-  border: 2px solid #fff;
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.35);
+  border: 2.5px solid #fff;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
   cursor: pointer;
   padding: 0;
   transition: transform 0.15s ease, box-shadow 0.15s ease;
@@ -103,9 +103,12 @@ html, body {
 .header {
   position: fixed; top: 0; left: 0; right: 0; z-index: 10;
   display: flex; align-items: center; justify-content: space-between;
-  padding: 16px 24px;
+  padding: 12px 20px;
   pointer-events: none;
   gap: 16px;
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid rgba(226, 232, 240, 0.8);
 }
 .header > * { pointer-events: auto; }
 .header-start {
