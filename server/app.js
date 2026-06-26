@@ -100,7 +100,7 @@ export function createApp() {
   });
 
   app.post('/api/synopsis', async (req, res) => {
-    const { name, location, type, workingOn, tags, exaKey, mistralKey } = req.body ?? {};
+    const { name, location, type, workingOn, tags, companyUrl, mode, exaKey, mistralKey } = req.body ?? {};
     const exa = process.env.EXA_API_KEY || (!isProd ? exaKey : undefined);
     const mistral = process.env.MISTRAL_API_KEY || (!isProd ? mistralKey : undefined);
 
@@ -115,52 +115,137 @@ export function createApp() {
       });
     }
 
-    const partnerContext = buildPartnerContext({ type, workingOn, tags });
+    const companyOnly = mode === 'company';
+    const partnerContext = companyOnly ? '' : buildPartnerContext({ type, workingOn, tags });
 
     try {
-      const query = `${name} ${location || ''} company`.trim();
-      const searchRes = await fetch('https://api.exa.ai/search', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': exa,
-        },
-        body: JSON.stringify({
-          query,
-          numResults: 3,
-          type: 'auto',
-          contents: { text: { maxCharacters: 1000 } },
-        }),
-      });
+      let webContext = '';
+      let sourceUrl = '';
 
-      if (!searchRes.ok) {
-        const err = await searchRes.text();
-        return res.status(searchRes.status).json({
-          error: `Exa search failed (${searchRes.status}): ${err.slice(0, 200)}`,
+      if (companyUrl?.trim()) {
+        let normalizedUrl;
+        try {
+          normalizedUrl = new URL(
+            companyUrl.trim().includes('://') ? companyUrl.trim() : `https://${companyUrl.trim()}`,
+          ).href;
+        } catch {
+          return res.status(400).json({ error: 'Enter a valid company website URL.' });
+        }
+
+        sourceUrl = normalizedUrl;
+
+        const contentsRes = await fetch('https://api.exa.ai/contents', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': exa,
+          },
+          body: JSON.stringify({
+            urls: [normalizedUrl],
+            text: { maxCharacters: 2500 },
+          }),
         });
+
+        if (contentsRes.ok) {
+          const contentsData = await contentsRes.json();
+          const pages = contentsData.results || [];
+          if (pages.length) {
+            webContext = pages
+              .map((p) => `Title: ${p.title || 'N/A'}\nURL: ${p.url || normalizedUrl}\n${p.text || ''}`)
+              .join('\n\n---\n\n');
+            sourceUrl = pages[0]?.url || normalizedUrl;
+          }
+        }
+
+        if (!webContext) {
+          const hostname = new URL(normalizedUrl).hostname.replace(/^www\./, '');
+          const searchRes = await fetch('https://api.exa.ai/search', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-api-key': exa,
+            },
+            body: JSON.stringify({
+              query: `${name} site:${hostname}`,
+              numResults: 3,
+              type: 'auto',
+              contents: { text: { maxCharacters: 1200 } },
+            }),
+          });
+
+          if (searchRes.ok) {
+            const searchData = await searchRes.json();
+            const results = searchData.results || [];
+            if (results.length) {
+              webContext = results
+                .map((r) => `Title: ${r.title || 'N/A'}\nURL: ${r.url || 'N/A'}\n${r.text || ''}`)
+                .join('\n\n---\n\n');
+              sourceUrl = results[0]?.url || normalizedUrl;
+            }
+          }
+        }
+      } else {
+        const query = `${name} ${location || ''} company`.trim();
+        const searchRes = await fetch('https://api.exa.ai/search', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': exa,
+          },
+          body: JSON.stringify({
+            query,
+            numResults: 3,
+            type: 'auto',
+            contents: { text: { maxCharacters: 1000 } },
+          }),
+        });
+
+        if (!searchRes.ok) {
+          const err = await searchRes.text();
+          return res.status(searchRes.status).json({
+            error: `Exa search failed (${searchRes.status}): ${err.slice(0, 200)}`,
+          });
+        }
+
+        const searchData = await searchRes.json();
+        const results = searchData.results || [];
+
+        if (results.length === 0 && !partnerContext) {
+          return res.json({
+            error: 'No web results found. Add a company website URL or check the name/location.',
+          });
+        }
+
+        webContext = results.length
+          ? results
+              .map((r) => `Title: ${r.title || 'N/A'}\nURL: ${r.url || 'N/A'}\n${r.text || ''}`)
+              .join('\n\n---\n\n')
+          : '';
+        sourceUrl = results[0]?.url || '';
       }
 
-      const searchData = await searchRes.json();
-      const results = searchData.results || [];
-
-      if (results.length === 0 && !partnerContext) {
+      if (!webContext && !partnerContext) {
         return res.json({
-          error: 'No web results found for this partner. Add working-on details or check the name/location.',
+          error: 'Could not read the company website. Check the URL or try again later.',
         });
       }
 
-      const webContext = results.length
-        ? results
-            .map((r) => `Title: ${r.title || 'N/A'}\nURL: ${r.url || 'N/A'}\n${r.text || ''}`)
-            .join('\n\n---\n\n')
-        : '';
-      const sourceUrl = results[0]?.url || '';
+      const userContent = companyOnly
+        ? [
+            `Write a company synopsis for "${name}"${location ? ` (${location})` : ''}.`,
+            'Describe what the company does, their industry, products/services, and scale if known.',
+            'Do not describe partnerships or client relationships — only public company facts.',
+            webContext ? `\nWebsite content:\n${webContext}` : '\nNo website content found.',
+          ].join('\n')
+        : [
+            `Write a brief synopsis for "${name}" (${location || 'unknown location'}).`,
+            partnerContext ? `\nInternal team context (use alongside web results):\n${partnerContext}` : '',
+            webContext ? `\nWeb search results:\n${webContext}` : '\nNo web results found — summarize from internal context only.',
+          ].join('');
 
-      const userContent = [
-        `Write a brief synopsis for "${name}" (${location || 'unknown location'}).`,
-        partnerContext ? `\nInternal team context (use alongside web results):\n${partnerContext}` : '',
-        webContext ? `\nWeb search results:\n${webContext}` : '\nNo web results found — summarize from internal context only.',
-      ].join('');
+      const systemContent = companyOnly
+        ? 'You write brief, factual company synopses in 2-4 sentences from website content. Only state facts supported by the inputs. No marketing language. Do not mention partnerships.'
+        : 'You write brief, factual partner synopses in 2-4 sentences. Combine public company facts from web results with internal partnership context when provided. Only state facts supported by the inputs. No marketing language.';
 
       const mistralRes = await fetch('https://api.mistral.ai/v1/chat/completions', {
         method: 'POST',
@@ -171,11 +256,7 @@ export function createApp() {
         body: JSON.stringify({
           model: 'mistral-small-latest',
           messages: [
-            {
-              role: 'system',
-              content:
-                'You write brief, factual partner synopses in 2-4 sentences. Combine public company facts from web results with internal partnership context when provided. Only state facts supported by the inputs. No marketing language.',
-            },
+            { role: 'system', content: systemContent },
             { role: 'user', content: userContent },
           ],
           max_tokens: 250,

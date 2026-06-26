@@ -48,41 +48,66 @@
       <div class="modal-body">
         <form id="partner-form">
           <input type="hidden" id="form-id">
-          <div class="form-group">
-            <label class="form-label" for="form-name">Name</label>
-            <input class="form-input" id="form-name" required placeholder="Company name">
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="form-type">Relationship type</label>
-            <select class="form-select" id="form-type" required></select>
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="form-location">Location</label>
-            <div class="location-row">
-              <input class="form-input" id="form-location" placeholder="e.g. Stockholm, Sweden">
-              <button class="btn" id="form-geocode" type="button">Look up</button>
-            </div>
-            <div id="geocode-results" class="geocode-results"></div>
-            <p class="form-hint">Search a place or click the globe to set coordinates</p>
-          </div>
-          <div class="form-row">
+          <p class="form-intro">Paste the company website to auto-generate a synopsis, then describe what you're partnering on together.</p>
+
+          <div class="form-section">
+            <div class="form-section-title">Company</div>
             <div class="form-group">
-              <label class="form-label" for="form-lat">Latitude</label>
-              <input class="form-input" id="form-lat" type="number" step="any" required>
+              <label class="form-label" for="form-name">Company name</label>
+              <input class="form-input" id="form-name" required placeholder="e.g. Volta Dynamics">
             </div>
             <div class="form-group">
-              <label class="form-label" for="form-lng">Longitude</label>
-              <input class="form-input" id="form-lng" type="number" step="any" required>
+              <label class="form-label" for="form-url">Company website</label>
+              <div class="location-row">
+                <input class="form-input" id="form-url" type="url" inputmode="url" placeholder="https://company.com">
+                <button class="btn btn-primary" id="form-analyze" type="button">Analyze</button>
+              </div>
+              <p class="form-hint">We read the site and summarize what the company does</p>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Company synopsis</label>
+              <div id="form-synopsis-preview" class="form-synopsis-preview"></div>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="form-type">Relationship type</label>
+              <select class="form-select" id="form-type" required></select>
             </div>
           </div>
-          <div class="form-group">
-            <label class="form-label" for="form-working">Current work</label>
-            <textarea class="form-textarea" id="form-working" placeholder="What's being worked on together?"></textarea>
+
+          <div class="form-section">
+            <div class="form-section-title">Location</div>
+            <div class="form-group">
+              <label class="form-label" for="form-location">Place</label>
+              <div class="location-row">
+                <input class="form-input" id="form-location" placeholder="e.g. Stockholm, Sweden">
+                <button class="btn" id="form-geocode" type="button">Look up</button>
+              </div>
+              <div id="geocode-results" class="geocode-results"></div>
+              <p class="form-hint">Search a place or click the globe to set coordinates</p>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label" for="form-lat">Latitude</label>
+                <input class="form-input" id="form-lat" type="number" step="any" required>
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="form-lng">Longitude</label>
+                <input class="form-input" id="form-lng" type="number" step="any" required>
+              </div>
+            </div>
           </div>
-          <div class="form-group">
-            <label class="form-label" for="form-tags">Tags</label>
-            <input class="form-input" id="form-tags" placeholder="Comma-separated, e.g. CNC, aerospace">
-            <p class="form-hint">Separate multiple tags with commas</p>
+
+          <div class="form-section">
+            <div class="form-section-title">Partnership</div>
+            <div class="form-group">
+              <label class="form-label" for="form-working">What we're partnering on</label>
+              <textarea class="form-textarea" id="form-working" placeholder="e.g. Series B EV powertrain enclosure — DFM review in progress"></textarea>
+              <p class="form-hint">Your internal notes on the collaboration — separate from the company synopsis</p>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="form-tags">Tags</label>
+              <input class="form-input" id="form-tags" placeholder="Comma-separated, e.g. CNC, aerospace">
+            </div>
           </div>
         </form>
       </div>

@@ -17,9 +17,22 @@ export function setApiKeys(exa, mistral) {
   mistralApiKey = mistral;
 }
 
+export function getPartnerSynopsis(partner) {
+  if (!partner) return null;
+  return synopsisCache.get(partner.id) || partner.synopsis || null;
+}
+
+export function setPartnerSynopsis(partnerId, synopsis) {
+  if (synopsis && !synopsis.error) {
+    synopsisCache.set(partnerId, synopsis);
+  } else if (synopsis?.error) {
+    synopsisCache.set(partnerId, synopsis);
+  }
+}
+
 export function renderSynopsis(data) {
   if (!data) {
-    return '<div class="synopsis-box" style="color:var(--text-muted);font-size:0.875rem">No synopsis yet. Click Generate to search the web.</div>';
+    return '<div class="synopsis-box synopsis-box--empty">No company synopsis yet. Add a website URL and analyze, or generate from the detail panel.</div>';
   }
   if (data.error) {
     return `<div class="synopsis-box error">${escapeHtml(data.error)}</div>`;
@@ -36,7 +49,7 @@ function escapeHtml(str) {
   return d.innerHTML;
 }
 
-export async function generateSynopsis(partner, { onNeedKeys } = {}) {
+async function requestSynopsis(payload, { onNeedKeys } = {}) {
   if (!isSynopsisViaServer() && (!exaApiKey || !mistralApiKey)) {
     onNeedKeys?.();
     return null;
@@ -46,11 +59,7 @@ export async function generateSynopsis(partner, { onNeedKeys } = {}) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      name: partner.name,
-      location: partner.location,
-      type: partner.type,
-      workingOn: partner.workingOn,
-      tags: partner.tags,
+      ...payload,
       exaKey: exaApiKey || undefined,
       mistralKey: mistralApiKey || undefined,
     }),
@@ -64,12 +73,44 @@ export async function generateSynopsis(partner, { onNeedKeys } = {}) {
   }
 
   if (!res.ok || data.error) {
-    const result = { error: data.error || `Request failed (${res.status})` };
-    synopsisCache.set(partner.id, result);
-    return result;
+    return { error: data.error || `Request failed (${res.status})` };
   }
 
-  const result = { text: data.text, source: data.source };
-  synopsisCache.set(partner.id, result);
+  return { text: data.text, source: data.source };
+}
+
+export async function generateCompanySynopsis({ name, companyUrl, location, type }, { onNeedKeys } = {}) {
+  return requestSynopsis(
+    {
+      name,
+      companyUrl,
+      location,
+      type,
+      mode: 'company',
+    },
+    { onNeedKeys },
+  );
+}
+
+export async function generateSynopsis(partner, { onNeedKeys } = {}) {
+  const result = await requestSynopsis(
+    {
+      name: partner.name,
+      location: partner.location,
+      type: partner.type,
+      workingOn: partner.workingOn,
+      tags: partner.tags,
+      companyUrl: partner.companyUrl,
+      mode: partner.companyUrl ? 'company' : 'full',
+    },
+    { onNeedKeys },
+  );
+
+  if (!result) return null;
+
+  if (partner.id) {
+    setPartnerSynopsis(partner.id, result);
+  }
+
   return result;
 }

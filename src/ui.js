@@ -1,5 +1,5 @@
 import { PARTNER_TYPES } from './constants.js';
-import { escapeHtml } from './utils.js';
+import { escapeHtml, normalizeCompanyUrl } from './utils.js';
 import { flyToPartner } from './map.js';
 import {
   isSynopsisViaServer,
@@ -7,10 +7,13 @@ import {
 } from './config.js';
 import {
   getSynopsisCache,
+  getPartnerSynopsis,
   getApiKeys,
   setApiKeys,
+  setPartnerSynopsis,
   renderSynopsis,
   generateSynopsis,
+  generateCompanySynopsis,
 } from './synopsis.js';
 import { searchPlaces } from './geocode.js';
 
@@ -48,6 +51,7 @@ export function populateTypeSelect(select) {
 export function createUI(handlers) {
   let selectedPartnerId = null;
   let confirmCallback = null;
+  let formPendingSynopsis = null;
 
   const tooltip = document.getElementById('pin-tooltip');
 
@@ -90,10 +94,14 @@ export function createUI(handlers) {
     const partner = handlers.getPartners().find((p) => p.id === id);
     if (!partner) return;
 
+    if (partner.synopsis) {
+      setPartnerSynopsis(partner.id, partner.synopsis);
+    }
+
     flyToPartner(partner);
 
     const typeInfo = PARTNER_TYPES[partner.type] || { label: partner.type, color: '#64748b' };
-    const cachedSynopsis = getSynopsisCache().get(id);
+    const cachedSynopsis = getPartnerSynopsis(partner);
 
     document.getElementById('panel-header-content').innerHTML = `
       <div class="partner-name">${escapeHtml(partner.name)}</div>
@@ -105,14 +113,22 @@ export function createUI(handlers) {
         `<div class="tags">${partner.tags.map((t) => `<span class="tag">${escapeHtml(t)}</span>`).join('')}</div>`
       : '<span style="color:var(--text-muted);font-size:0.875rem">None</span>';
 
+    const websiteHtml = partner.companyUrl
+      ? `<div class="panel-section">
+          <div class="panel-section-label">Website</div>
+          <div class="panel-section-value"><a href="${escapeHtml(partner.companyUrl)}" target="_blank" rel="noopener">${escapeHtml(partner.companyUrl)}</a></div>
+        </div>`
+      : '';
+
     document.getElementById('panel-body').innerHTML = `
+      ${websiteHtml}
       <div class="panel-section">
         <div class="panel-section-label">Location</div>
         <div class="panel-section-value">${escapeHtml(partner.location || '—')}</div>
         <div class="coords">${partner.lat.toFixed(4)}°, ${partner.lng.toFixed(4)}°</div>
       </div>
       <div class="panel-section">
-        <div class="panel-section-label">Current work</div>
+        <div class="panel-section-label">What we're partnering on</div>
         <div class="panel-section-value">${escapeHtml(partner.workingOn || '—')}</div>
       </div>
       <div class="panel-section">
@@ -120,7 +136,7 @@ export function createUI(handlers) {
         ${tagsHtml}
       </div>
       <div class="panel-section">
-        <div class="panel-section-label">Web synopsis</div>
+        <div class="panel-section-label">Company synopsis</div>
         <div id="synopsis-content">${renderSynopsis(cachedSynopsis)}</div>
         <button class="btn" id="btn-synopsis" type="button" style="margin-top:10px">
           ${cachedSynopsis && !cachedSynopsis.error ? 'Refresh synopsis' : 'Generate synopsis'}
@@ -150,7 +166,7 @@ export function createUI(handlers) {
   async function runSynopsis(partner) {
     const contentEl = document.getElementById('synopsis-content');
     const btn = document.getElementById('btn-synopsis');
-    contentEl.innerHTML = '<div class="synopsis-box loading">Searching the web and generating summary…</div>';
+    contentEl.innerHTML = '<div class="synopsis-box loading">Analyzing company and generating synopsis…</div>';
     btn.disabled = true;
 
     const result = await generateSynopsis(partner, { onNeedKeys: openSettings });
@@ -158,9 +174,57 @@ export function createUI(handlers) {
     if (result) {
       contentEl.innerHTML = renderSynopsis(result);
       btn.textContent = 'Refresh synopsis';
+      if (!result.error) {
+        handlers.onSavePartner({ ...partner, synopsis: result }, false);
+      }
     }
 
     btn.disabled = false;
+  }
+
+  function renderFormSynopsisPreview(data) {
+    document.getElementById('form-synopsis-preview').innerHTML = renderSynopsis(data);
+  }
+
+  async function runCompanyAnalyze() {
+    const name = document.getElementById('form-name').value.trim();
+    const urlInput = document.getElementById('form-url').value.trim();
+    const preview = document.getElementById('form-synopsis-preview');
+    const btn = document.getElementById('form-analyze');
+
+    if (!name) {
+      preview.innerHTML = renderSynopsis({ error: 'Enter a company name first.' });
+      document.getElementById('form-name').focus();
+      return;
+    }
+
+    const companyUrl = normalizeCompanyUrl(urlInput);
+    if (!companyUrl) {
+      preview.innerHTML = renderSynopsis({ error: 'Enter a valid website URL (e.g. https://company.com).' });
+      document.getElementById('form-url').focus();
+      return;
+    }
+
+    document.getElementById('form-url').value = companyUrl;
+    btn.disabled = true;
+    preview.innerHTML = '<div class="synopsis-box loading">Reading website and generating company synopsis…</div>';
+
+    const result = await generateCompanySynopsis(
+      {
+        name,
+        companyUrl,
+        location: document.getElementById('form-location').value.trim(),
+        type: document.getElementById('form-type').value,
+      },
+      { onNeedKeys: openSettings },
+    );
+
+    btn.disabled = false;
+
+    if (result) {
+      formPendingSynopsis = result;
+      renderFormSynopsisPreview(result);
+    }
   }
 
   function openForm(partner, lat, lng) {
@@ -168,6 +232,7 @@ export function createUI(handlers) {
     document.getElementById('form-modal-title').textContent = isEdit ? 'Edit partner' : 'Add partner';
     document.getElementById('form-id').value = partner?.id || '';
     document.getElementById('form-name').value = partner?.name || '';
+    document.getElementById('form-url').value = partner?.companyUrl || '';
     document.getElementById('form-type').value = partner?.type || 'client';
     document.getElementById('form-location').value = partner?.location || '';
     document.getElementById('form-lat').value = partner?.lat ?? lat ?? '';
@@ -175,6 +240,8 @@ export function createUI(handlers) {
     document.getElementById('form-working').value = partner?.workingOn || '';
     document.getElementById('form-tags').value = (partner?.tags || []).join(', ');
     document.getElementById('geocode-results').innerHTML = '';
+    formPendingSynopsis = partner?.synopsis || null;
+    renderFormSynopsisPreview(formPendingSynopsis);
     document.getElementById('form-modal-overlay').classList.add('open');
     setTimeout(() => document.getElementById('form-name').focus(), 50);
   }
@@ -223,6 +290,7 @@ export function createUI(handlers) {
   }
 
   function closeForm() {
+    formPendingSynopsis = null;
     document.getElementById('form-modal-overlay').classList.remove('open');
   }
 
@@ -239,6 +307,8 @@ export function createUI(handlers) {
       return;
     }
 
+    const companyUrl = normalizeCompanyUrl(document.getElementById('form-url').value) || '';
+
     const partner = {
       id: existingId || handlers.generateId(),
       name: document.getElementById('form-name').value.trim(),
@@ -246,6 +316,7 @@ export function createUI(handlers) {
       lat,
       lng,
       location: document.getElementById('form-location').value.trim(),
+      companyUrl,
       workingOn: document.getElementById('form-working').value.trim(),
       tags: document
         .getElementById('form-tags')
@@ -253,6 +324,13 @@ export function createUI(handlers) {
         .map((t) => t.trim())
         .filter(Boolean),
     };
+
+    if (formPendingSynopsis && !formPendingSynopsis.error) {
+      partner.synopsis = formPendingSynopsis;
+    } else if (existingId) {
+      const existing = handlers.getPartners().find((p) => p.id === existingId);
+      if (existing?.synopsis) partner.synopsis = existing.synopsis;
+    }
 
     handlers.onSavePartner(partner, isNew);
     closeForm();
@@ -317,10 +395,17 @@ export function createUI(handlers) {
   document.querySelectorAll('.form-modal-close').forEach((el) => el.addEventListener('click', closeForm));
   document.getElementById('partner-form').addEventListener('submit', saveForm);
   document.getElementById('form-geocode').addEventListener('click', runGeocode);
+  document.getElementById('form-analyze').addEventListener('click', runCompanyAnalyze);
   document.getElementById('form-location').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
       runGeocode();
+    }
+  });
+  document.getElementById('form-url').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      runCompanyAnalyze();
     }
   });
 
