@@ -1,7 +1,7 @@
 import './styles.css';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { mergePartners, persistPartner, deletePartner, resetAllData, generateId } from './partners.js';
-import { initMap, rebuildPins, setSelectedPartner, resetGlobeView, frameGlobeView } from './map.js';
+import { initMap, rebuildPins, setSelectedPartner, resetGlobeView } from './map.js';
 import { buildLegend, createUI } from './ui.js';
 import { fetchAppConfig, getMapboxToken } from './config.js';
 import { reverseGeocode } from './geocode.js';
@@ -19,7 +19,6 @@ function refreshPartners() {
   rebuildPins(getVisiblePartners());
   ui.updateLegend(partners, typeFilter);
   ui.updatePartnerCount(getVisiblePartners().length, partners.length);
-  requestAnimationFrame(() => frameGlobeView(false));
 }
 
 const ui = createUI({

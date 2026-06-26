@@ -1,9 +1,10 @@
 import mapboxgl from 'mapbox-gl';
 import { FANOUT_RADIUS, PROXIMITY_THRESHOLD, PARTNER_TYPES } from './constants.js';
 
+const DEFAULT_VIEW = { center: [0, 20], zoom: 1.5, bearing: 0, pitch: 0 };
+
 let map = null;
 let mapReady = false;
-let resizeObserver = null;
 const markers = new Map();
 let rotateTimer = null;
 let userInteracting = false;
@@ -77,71 +78,6 @@ function hideMapLoading() {
   document.getElementById('map-container')?.classList.add('map-container--ready');
 }
 
-function getGlobePadding() {
-  const narrow = window.innerWidth < 640;
-  const legend = document.getElementById('legend');
-  const legendW = legend ? Math.min(legend.offsetWidth + 32, 240) : 0;
-
-  return {
-    top: narrow ? 88 : 64,
-    bottom: narrow ? 56 : 48,
-    left: narrow ? 12 : legendW,
-    right: narrow ? 12 : 48,
-  };
-}
-
-function getGlobeZoom() {
-  if (!map) return 0.9;
-  const { clientWidth: w, clientHeight: h } = map.getContainer();
-  const minSide = Math.min(w, h);
-  if (minSide < 420) return 0.65;
-  if (minSide < 720) return 0.78;
-  if (minSide < 1100) return 0.88;
-  return 0.95;
-}
-
-function applyGlobeStyle() {
-  if (!map) return;
-
-  map.getStyle().layers.forEach((layer) => {
-    if (layer.type === 'symbol') {
-      try {
-        map.setLayoutProperty(layer.id, 'visibility', 'none');
-      } catch {
-        // layer may not support visibility
-      }
-    }
-  });
-
-  map.setFog({
-    color: 'rgb(186, 210, 235)',
-    'high-color': 'rgb(36, 92, 223)',
-    'horizon-blend': 0.04,
-    'space-color': 'rgb(11, 11, 25)',
-    'star-intensity': 0.45,
-  });
-}
-
-export function frameGlobeView(animate = false) {
-  if (!map || !mapReady) return;
-
-  map.setPadding(getGlobePadding());
-  map.resize();
-
-  const view = {
-    center: [0, 18],
-    zoom: getGlobeZoom(),
-    bearing: 0,
-    pitch: 0,
-  };
-
-  if (animate) {
-    map.flyTo({ ...view, speed: 1.3, essential: true });
-  } else {
-    map.jumpTo(view);
-  }
-}
-
 function startAutoRotate() {
   if (rotateTimer) clearInterval(rotateTimer);
   rotateTimer = setInterval(() => {
@@ -159,8 +95,7 @@ function pauseAutoRotate(ms = 3500) {
 }
 
 function onResize() {
-  if (!map) return;
-  frameGlobeView(false);
+  map?.resize();
 }
 
 export function initMap(token, callbacks) {
@@ -178,35 +113,22 @@ export function initMap(token, callbacks) {
 
   map = new mapboxgl.Map({
     container: 'map-container',
-    style: 'mapbox://styles/mapbox/satellite-streets-v12',
+    style: 'mapbox://styles/mapbox/streets-v12',
     projection: 'globe',
-    center: [0, 18],
-    zoom: 0.9,
-    bearing: 0,
-    pitch: 0,
-    minZoom: 0.35,
-    maxZoom: 10,
-    antialias: true,
+    center: DEFAULT_VIEW.center,
+    zoom: DEFAULT_VIEW.zoom,
+    bearing: DEFAULT_VIEW.bearing,
+    pitch: DEFAULT_VIEW.pitch,
   });
 
   map.addControl(new mapboxgl.NavigationControl({ showCompass: true }), 'bottom-right');
-  map.scrollZoom.enable();
-  map.dragPan.enable();
-  map.dragRotate.enable();
-  map.touchZoomRotate.enable();
 
   map.on('load', () => {
     mapReady = true;
-    applyGlobeStyle();
-    frameGlobeView(false);
+    map.resize();
     startAutoRotate();
     hideMapLoading();
     onMapReady();
-    requestAnimationFrame(() => frameGlobeView(false));
-  });
-
-  map.on('style.load', () => {
-    if (mapReady) applyGlobeStyle();
   });
 
   map.on('dragstart', () => { userInteracting = true; });
@@ -226,12 +148,6 @@ export function initMap(token, callbacks) {
   });
 
   window.addEventListener('resize', onResize);
-
-  const container = document.getElementById('map-container');
-  if (container && typeof ResizeObserver !== 'undefined') {
-    resizeObserver = new ResizeObserver(() => onResize());
-    resizeObserver.observe(container);
-  }
 
   return map;
 }
@@ -281,7 +197,7 @@ export function flyToPartner(partner) {
   pauseAutoRotate(5000);
   map.flyTo({
     center: [partner.lng, partner.lat],
-    zoom: Math.min(Math.max(map.getZoom(), 2), 3.2),
+    zoom: Math.max(map.getZoom(), 3),
     speed: 1.1,
     essential: true,
   });
@@ -290,7 +206,7 @@ export function flyToPartner(partner) {
 export function resetGlobeView() {
   if (!map) return;
   pauseAutoRotate();
-  frameGlobeView(true);
+  map.flyTo({ ...DEFAULT_VIEW, speed: 1.4, essential: true });
 }
 
 export function getMap() {

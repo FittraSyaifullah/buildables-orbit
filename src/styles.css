@@ -38,12 +38,6 @@ html, body {
 
 #map-container.map-container--ready { cursor: grab; }
 
-.mapboxgl-ctrl-bottom-right {
-  bottom: 72px !important;
-  right: 20px !important;
-  z-index: 5;
-}
-
 .mapboxgl-ctrl-bottom-right .mapboxgl-ctrl {
   box-shadow: var(--shadow);
   border-radius: 8px;
