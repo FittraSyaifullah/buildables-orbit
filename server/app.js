@@ -7,7 +7,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const isProd = process.env.NODE_ENV === 'production';
+const isProd = process.env.NODE_ENV === 'production' || process.env.VERCEL_ENV === 'production';
 const isVercel = Boolean(process.env.VERCEL);
 const distPath = path.join(__dirname, '..', 'dist');
 
