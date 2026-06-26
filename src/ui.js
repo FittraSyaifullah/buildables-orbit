@@ -14,16 +14,29 @@ import {
 } from './synopsis.js';
 import { searchPlaces } from './geocode.js';
 
-export function buildLegend() {
+export function buildLegend(partners, activeFilter, onFilter) {
   const el = document.getElementById('legend');
+  const counts = Object.fromEntries(
+    Object.keys(PARTNER_TYPES).map((key) => [key, partners.filter((p) => p.type === key).length]),
+  );
+
   el.innerHTML =
-    '<div class="legend-title">Relationship types</div>' +
+    '<div class="legend-title">Filter by type</div>' +
     Object.entries(PARTNER_TYPES)
-      .map(
-        ([, { label, color }]) =>
-          `<div class="legend-item"><span class="legend-dot" style="background:${color}"></span>${label}</div>`,
-      )
+      .map(([key, { label, color }]) => {
+        const count = counts[key] || 0;
+        const active = activeFilter === key;
+        return `<button type="button" class="legend-item${active ? ' legend-item--active' : ''}" data-type="${key}"${count ? '' : ' disabled'}>
+          <span class="legend-dot" style="background:${color}"></span>
+          <span class="legend-label">${label}</span>
+          <span class="legend-count">${count}</span>
+        </button>`;
+      })
       .join('');
+
+  el.querySelectorAll('.legend-item:not([disabled])').forEach((btn) => {
+    btn.addEventListener('click', () => onFilter?.(btn.dataset.type));
+  });
 }
 
 export function populateTypeSelect(select) {
@@ -59,8 +72,21 @@ export function createUI(handlers) {
     }
   }
 
+  function updateLegend(partnerList, activeFilter) {
+    buildLegend(partnerList, activeFilter, handlers.onTypeFilter);
+  }
+
+  function updatePartnerCount(visible, total) {
+    const el = document.getElementById('partner-count');
+    if (!el) return;
+    el.textContent = visible !== total ?
+      `${visible} of ${total} partners`
+    : `${total} partner${total === 1 ? '' : 's'}`;
+  }
+
   function openPanel(id) {
     selectedPartnerId = id;
+    handlers.onSelectPartner?.(id);
     const partner = handlers.getPartners().find((p) => p.id === id);
     if (!partner) return;
 
@@ -116,6 +142,7 @@ export function createUI(handlers) {
 
   function closePanel() {
     selectedPartnerId = null;
+    handlers.onDeselectPartner?.();
     document.getElementById('panel-overlay').classList.remove('open');
     document.getElementById('detail-panel').classList.remove('open');
   }
@@ -149,6 +176,7 @@ export function createUI(handlers) {
     document.getElementById('form-tags').value = (partner?.tags || []).join(', ');
     document.getElementById('geocode-results').innerHTML = '';
     document.getElementById('form-modal-overlay').classList.add('open');
+    setTimeout(() => document.getElementById('form-name').focus(), 50);
   }
 
   async function runGeocode() {
@@ -203,12 +231,20 @@ export function createUI(handlers) {
     const existingId = document.getElementById('form-id').value;
     const isNew = !existingId;
 
+    const lat = parseFloat(document.getElementById('form-lat').value);
+    const lng = parseFloat(document.getElementById('form-lng').value);
+
+    if (Number.isNaN(lat) || Number.isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      alert('Enter valid coordinates (lat −90…90, lng −180…180).');
+      return;
+    }
+
     const partner = {
       id: existingId || handlers.generateId(),
       name: document.getElementById('form-name').value.trim(),
       type: document.getElementById('form-type').value,
-      lat: parseFloat(document.getElementById('form-lat').value),
-      lng: parseFloat(document.getElementById('form-lng').value),
+      lat,
+      lng,
       location: document.getElementById('form-location').value.trim(),
       workingOn: document.getElementById('form-working').value.trim(),
       tags: document
@@ -260,7 +296,8 @@ export function createUI(handlers) {
 
   function handleHover(partner, x, y) {
     if (partner) {
-      tooltip.textContent = partner.name;
+      const typeLabel = PARTNER_TYPES[partner.type]?.label || partner.type;
+      tooltip.innerHTML = `<strong>${escapeHtml(partner.name)}</strong><span>${escapeHtml(typeLabel)}</span>`;
       tooltip.style.left = `${x}px`;
       tooltip.style.top = `${y}px`;
       tooltip.classList.add('visible');
@@ -271,6 +308,8 @@ export function createUI(handlers) {
 
   populateTypeSelect(document.getElementById('form-type'));
 
+  document.getElementById('btn-add-partner').addEventListener('click', () => openForm());
+  document.getElementById('btn-reset-view').addEventListener('click', () => handlers.onResetView?.());
   document.getElementById('btn-settings').addEventListener('click', openSettings);
   document.getElementById('panel-close').addEventListener('click', closePanel);
   document.getElementById('panel-overlay').addEventListener('click', closePanel);
@@ -315,5 +354,7 @@ export function createUI(handlers) {
     openForm,
     handleHover,
     updateSettingsStatus,
+    updateLegend,
+    updatePartnerCount,
   };
 }

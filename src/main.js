@@ -1,20 +1,29 @@
 import './styles.css';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { mergePartners, persistPartner, deletePartner, resetAllData, generateId } from './partners.js';
-import { initMap, rebuildPins } from './map.js';
+import { initMap, rebuildPins, setSelectedPartner, resetGlobeView } from './map.js';
 import { buildLegend, createUI } from './ui.js';
 import { fetchAppConfig, getMapboxToken } from './config.js';
 import { reverseGeocode } from './geocode.js';
 
 let partners = [];
+let typeFilter = null;
+
+function getVisiblePartners() {
+  if (!typeFilter) return partners;
+  return partners.filter((p) => p.type === typeFilter);
+}
 
 function refreshPartners() {
   partners = mergePartners();
-  rebuildPins(partners);
+  rebuildPins(getVisiblePartners());
+  ui.updateLegend(partners, typeFilter);
+  ui.updatePartnerCount(getVisiblePartners().length, partners.length);
 }
 
 const ui = createUI({
   getPartners: () => partners,
+  getVisiblePartners,
   generateId,
   onSavePartner: (partner, isNew) => {
     persistPartner(partner, isNew);
@@ -22,15 +31,30 @@ const ui = createUI({
   },
   onDeletePartner: (id) => {
     deletePartner(id);
+    setSelectedPartner(null);
     refreshPartners();
   },
   onResetData: () => {
     resetAllData();
+    typeFilter = null;
+    setSelectedPartner(null);
     refreshPartners();
   },
+  onTypeFilter: (type) => {
+    typeFilter = typeFilter === type ? null : type;
+    refreshPartners();
+  },
+  onSelectPartner: (id) => {
+    setSelectedPartner(id);
+    rebuildPins(getVisiblePartners());
+  },
+  onDeselectPartner: () => {
+    setSelectedPartner(null);
+    rebuildPins(getVisiblePartners());
+  },
+  onResetView: resetGlobeView,
 });
 
-buildLegend();
 partners = mergePartners();
 
 async function bootstrap() {
@@ -38,6 +62,7 @@ async function bootstrap() {
   ui.updateSettingsStatus();
 
   initMap(getMapboxToken(), {
+    onMapReady: refreshPartners,
     onPinClick: (id) => ui.openPanel(id),
     onMapClick: async ({ lat, lng }) => {
       ui.openForm(null, lat, lng);
@@ -52,8 +77,6 @@ async function bootstrap() {
     },
     onHoverPartner: (partner, x, y) => ui.handleHover(partner, x, y),
   });
-
-  rebuildPins(partners);
 }
 
 bootstrap();

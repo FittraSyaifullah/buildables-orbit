@@ -1,15 +1,19 @@
 import mapboxgl from 'mapbox-gl';
 import { FANOUT_RADIUS, PROXIMITY_THRESHOLD, PARTNER_TYPES } from './constants.js';
 
+const DEFAULT_VIEW = { center: [10, 25], zoom: 1.4, bearing: 0, pitch: 0 };
+
 let map = null;
 let mapReady = false;
 const markers = new Map();
 let rotateTimer = null;
 let userInteracting = false;
+let selectedPartnerId = null;
 
 let onPinClick = () => {};
 let onMapClick = () => {};
 let onHoverPartner = () => {};
+let onMapReady = () => {};
 
 function computeDisplayPositions(partnerList) {
   const positions = new Map();
@@ -50,19 +54,28 @@ function computeDisplayPositions(partnerList) {
   return positions;
 }
 
-function createMarkerElement(partner) {
+function createMarkerElement(partner, isSelected) {
   const color = PARTNER_TYPES[partner.type]?.color || '#64748b';
   const el = document.createElement('button');
   el.type = 'button';
-  el.className = 'map-pin';
+  el.className = `map-pin${isSelected ? ' map-pin--selected' : ''}`;
+  el.style.setProperty('--pin-color', color);
   el.style.backgroundColor = color;
-  el.setAttribute('aria-label', partner.name);
+  el.setAttribute('aria-label', `${partner.name}, ${PARTNER_TYPES[partner.type]?.label || partner.type}`);
+  el.dataset.partnerId = partner.id;
   return el;
 }
 
 function showMapError(message) {
+  const loading = document.getElementById('map-loading');
+  if (loading) loading.remove();
   const container = document.getElementById('map-container');
   container.innerHTML = `<div class="map-error">${message}</div>`;
+}
+
+function hideMapLoading() {
+  document.getElementById('map-loading')?.remove();
+  document.getElementById('map-container')?.classList.add('map-container--ready');
 }
 
 function applyGlobeStyle() {
@@ -107,10 +120,18 @@ function startAutoRotate() {
   }, 50);
 }
 
+function pauseAutoRotate(ms = 3500) {
+  userInteracting = true;
+  setTimeout(() => {
+    userInteracting = false;
+  }, ms);
+}
+
 export function initMap(token, callbacks) {
   onPinClick = callbacks.onPinClick;
   onMapClick = callbacks.onMapClick;
   onHoverPartner = callbacks.onHoverPartner;
+  onMapReady = callbacks.onMapReady || (() => {});
 
   if (!token) {
     showMapError('Mapbox token not configured. Add MAPBOX_ACCESS_TOKEN to .env and restart the server.');
@@ -123,10 +144,10 @@ export function initMap(token, callbacks) {
     container: 'map-container',
     style: 'mapbox://styles/mapbox/light-v11',
     projection: 'globe',
-    center: [10, 25],
-    zoom: 1.4,
-    pitch: 0,
-    bearing: 0,
+    center: DEFAULT_VIEW.center,
+    zoom: DEFAULT_VIEW.zoom,
+    pitch: DEFAULT_VIEW.pitch,
+    bearing: DEFAULT_VIEW.bearing,
     antialias: true,
   });
 
@@ -136,14 +157,16 @@ export function initMap(token, callbacks) {
     mapReady = true;
     applyGlobeStyle();
     startAutoRotate();
+    hideMapLoading();
+    onMapReady();
   });
 
   map.on('dragstart', () => { userInteracting = true; });
   map.on('zoomstart', () => { userInteracting = true; });
   map.on('rotatestart', () => { userInteracting = true; });
-  map.on('dragend', () => { setTimeout(() => { userInteracting = false; }, 3000); });
-  map.on('zoomend', () => { setTimeout(() => { userInteracting = false; }, 3000); });
-  map.on('rotateend', () => { setTimeout(() => { userInteracting = false; }, 3000); });
+  map.on('dragend', () => pauseAutoRotate());
+  map.on('zoomend', () => pauseAutoRotate());
+  map.on('rotateend', () => pauseAutoRotate());
 
   map.on('click', (e) => {
     if (e.originalEvent.target.closest('.map-pin')) return;
@@ -157,6 +180,10 @@ export function initMap(token, callbacks) {
   return map;
 }
 
+export function setSelectedPartner(id) {
+  selectedPartnerId = id;
+}
+
 export function rebuildPins(partners) {
   if (!map) return;
 
@@ -167,7 +194,8 @@ export function rebuildPins(partners) {
 
   partners.forEach((partner) => {
     const pos = positions.get(partner.id) || { lat: partner.lat, lng: partner.lng };
-    const el = createMarkerElement(partner);
+    const isSelected = partner.id === selectedPartnerId;
+    const el = createMarkerElement(partner, isSelected);
 
     el.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -194,14 +222,23 @@ export function rebuildPins(partners) {
 
 export function flyToPartner(partner) {
   if (!map || !partner) return;
-  userInteracting = true;
+  pauseAutoRotate();
   map.flyTo({
     center: [partner.lng, partner.lat],
     zoom: Math.max(map.getZoom(), 3),
     speed: 1.2,
     essential: true,
   });
-  setTimeout(() => { userInteracting = false; }, 3500);
+}
+
+export function resetGlobeView() {
+  if (!map) return;
+  pauseAutoRotate();
+  map.flyTo({
+    ...DEFAULT_VIEW,
+    speed: 1.4,
+    essential: true,
+  });
 }
 
 export function getMap() {

@@ -3,18 +3,24 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Buildables Orbit</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <meta name="description" content="Buildables Orbit — interactive sourcing partner globe for buildables.app">
+  <title>Buildables Orbit</title> href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
 
   <div id="map-container"></div>
+  <div id="map-loading" class="map-loading" aria-live="polite">Loading globe…</div>
 
   <header class="header">
-    <div class="logo">Buildables <span>Orbit</span></div>
+    <div class="header-start">
+      <div class="logo">Buildables <span>Orbit</span></div>
+      <div class="partner-count" id="partner-count"></div>
+    </div>
     <div class="header-actions">
+      <button class="btn" id="btn-reset-view" type="button" title="Reset globe view">Reset view</button>
+      <button class="btn btn-primary" id="btn-add-partner" type="button">Add partner</button>
       <button class="btn" id="btn-settings" type="button">Settings</button>
     </div>
   </header>
