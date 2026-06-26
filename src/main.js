@@ -1,5 +1,4 @@
 import './styles.css';
-import 'mapbox-gl/dist/mapbox-gl.css';
 import { mergePartners, persistPartner, deletePartner, resetAllData, generateId } from './partners.js';
 import { initMap, rebuildPins } from './map.js';
 import { buildLegend, createUI } from './ui.js';

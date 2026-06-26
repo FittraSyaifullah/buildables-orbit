@@ -1,5 +1,6 @@
 import { PARTNER_TYPES } from './constants.js';
 import { escapeHtml } from './utils.js';
+import { flyToPartner } from './map.js';
 import {
   isSynopsisViaServer,
   isProductionEnv,
@@ -62,6 +63,8 @@ export function createUI(handlers) {
     selectedPartnerId = id;
     const partner = handlers.getPartners().find((p) => p.id === id);
     if (!partner) return;
+
+    flyToPartner(partner);
 
     const typeInfo = PARTNER_TYPES[partner.type] || { label: partner.type, color: '#64748b' };
     const cachedSynopsis = getSynopsisCache().get(id);
