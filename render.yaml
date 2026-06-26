@@ -1,0 +1,18 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+# Connect repo → Render auto-detects this file → set EXA_API_KEY + MISTRAL_API_KEY in dashboard
+
+services:
+  - type: web
+    name: buildables-orbit
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MAPBOX_ACCESS_TOKEN
+        sync: false
+      - key: EXA_API_KEY
+        sync: false
+      - key: MISTRAL_API_KEY
+        sync: false

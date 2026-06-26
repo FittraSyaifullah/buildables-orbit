@@ -1,0 +1,23 @@
+# dependencies
+node_modules
+npm-debug.log*
+
+# build output (rebuilt in container)
+dist
+
+# secrets & local env
+.env
+.env.*
+!.env.example
+
+# git & editor
+.git
+.gitignore
+.cursor
+.vscode
+*.md
+
+# misc
+.DS_Store
+*.log
+terminals

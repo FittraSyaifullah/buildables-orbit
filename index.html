@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Buildables Orbit</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+  <div id="map-container"></div>
+
+  <header class="header">
+    <div class="logo">Buildables <span>Orbit</span></div>
+    <div class="header-actions">
+      <button class="btn" id="btn-settings" type="button">Settings</button>
+    </div>
+  </header>
+
+  <div class="legend" id="legend"></div>
+  <div class="hint-bar">Click the map to add a partner · search a city to geocode</div>
+  <div id="pin-tooltip"></div>
+
+  <div class="panel-overlay" id="panel-overlay"></div>
+  <aside class="detail-panel" id="detail-panel">
+    <div class="panel-header">
+      <div id="panel-header-content"></div>
+      <button class="panel-close" id="panel-close" type="button" aria-label="Close">&times;</button>
+    </div>
+    <div class="panel-body" id="panel-body"></div>
+  </aside>
+
+  <div class="modal-overlay" id="form-modal-overlay">
+    <div class="modal" role="dialog" aria-labelledby="form-modal-title">
+      <div class="modal-header">
+        <h2 class="modal-title" id="form-modal-title">Add partner</h2>
+        <button class="panel-close form-modal-close" type="button" aria-label="Close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="partner-form">
+          <input type="hidden" id="form-id">
+          <div class="form-group">
+            <label class="form-label" for="form-name">Name</label>
+            <input class="form-input" id="form-name" required placeholder="Company name">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="form-type">Relationship type</label>
+            <select class="form-select" id="form-type" required></select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="form-location">Location</label>
+            <div class="location-row">
+              <input class="form-input" id="form-location" placeholder="e.g. Stockholm, Sweden">
+              <button class="btn" id="form-geocode" type="button">Look up</button>
+            </div>
+            <div id="geocode-results" class="geocode-results"></div>
+            <p class="form-hint">Search a place or click the map to set coordinates</p>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label" for="form-lat">Latitude</label>
+              <input class="form-input" id="form-lat" type="number" step="any" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="form-lng">Longitude</label>
+              <input class="form-input" id="form-lng" type="number" step="any" required>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="form-working">Current work</label>
+            <textarea class="form-textarea" id="form-working" placeholder="What's being worked on together?"></textarea>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="form-tags">Tags</label>
+            <input class="form-input" id="form-tags" placeholder="Comma-separated, e.g. CNC, aerospace">
+            <p class="form-hint">Separate multiple tags with commas</p>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn form-modal-close" type="button">Cancel</button>
+        <button class="btn btn-primary" id="form-save" type="submit" form="partner-form">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="settings-modal-overlay">
+    <div class="modal" role="dialog" aria-labelledby="settings-modal-title">
+      <div class="modal-header">
+        <h2 class="modal-title" id="settings-modal-title">Settings</h2>
+        <button class="panel-close settings-modal-close" type="button" aria-label="Close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="settings-section">
+          <h3>AI Synopsis</h3>
+          <div id="settings-synopsis-status" class="settings-status warn"></div>
+          <div id="settings-keys-section">
+            <p>Session-only fallback keys — used when server .env is not configured.</p>
+            <div class="form-group">
+              <label class="form-label" for="settings-exa-key">Exa.ai API key</label>
+              <input class="form-input" id="settings-exa-key" type="password" placeholder="exa-..." autocomplete="off">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="settings-mistral-key">Mistral.ai API key</label>
+              <input class="form-input" id="settings-mistral-key" type="password" placeholder="..." autocomplete="off">
+            </div>
+          </div>
+        </div>
+        <div class="settings-section">
+          <h3>Partner data</h3>
+          <p>Reset removes all local edits and restores the original sample partners.</p>
+          <button class="btn btn-danger" id="btn-reset-data" type="button">Reset all custom partner data</button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn settings-modal-close" type="button">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="confirm-modal-overlay">
+    <div class="modal" role="alertdialog">
+      <div class="modal-header">
+        <h2 class="modal-title" id="confirm-modal-title">Confirm</h2>
+      </div>
+      <div class="modal-body">
+        <p class="confirm-text" id="confirm-modal-text"></p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" id="confirm-cancel" type="button">Cancel</button>
+        <button class="btn btn-danger" id="confirm-ok" type="button">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
