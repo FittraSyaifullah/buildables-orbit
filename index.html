@@ -26,7 +26,10 @@
     </div>
   </header>
 
-  <div class="legend" id="legend"></div>
+  <div class="sidebar-panel">
+    <input type="search" id="partner-search" class="partner-search" placeholder="Search partners…" autocomplete="off" aria-label="Search partners">
+    <div class="legend" id="legend"></div>
+  </div>
   <div class="hint-bar">Drag to spin · scroll to zoom · right-drag to tilt · click to add partner</div>
   <div id="pin-tooltip"></div>
 
@@ -48,7 +51,8 @@
       <div class="modal-body">
         <form id="partner-form">
           <input type="hidden" id="form-id">
-          <p class="form-intro">Paste the company website to auto-generate a synopsis, then describe what you're partnering on together.</p>
+          <p class="form-intro">Add the company website for an auto-generated synopsis, then describe what you're partnering on together.</p>
+          <div id="form-error" class="form-error" hidden></div>
 
           <div class="form-section">
             <div class="form-section-title">Company</div>
@@ -113,7 +117,7 @@
       </div>
       <div class="modal-footer">
         <button class="btn form-modal-close" type="button">Cancel</button>
-        <button class="btn btn-primary" id="form-save" type="submit" form="partner-form">Save</button>
+        <button class="btn btn-primary" id="form-save" type="submit" form="partner-form">Save partner</button>
       </div>
     </div>
   </div>
@@ -138,6 +142,21 @@
               <label class="form-label" for="settings-mistral-key">Mistral.ai API key</label>
               <input class="form-input" id="settings-mistral-key" type="password" placeholder="..." autocomplete="off">
             </div>
+          </div>
+        </div>
+        <div class="settings-section">
+          <h3>Import & export</h3>
+          <p>Back up partners as JSON or import a saved file. Merge adds partners; replace overwrites all local data.</p>
+          <div class="settings-actions">
+            <button class="btn" id="btn-export" type="button">Export JSON</button>
+            <label class="btn btn-file">
+              Choose file
+              <input type="file" id="import-file" accept="application/json,.json" hidden>
+            </label>
+          </div>
+          <div class="settings-actions settings-actions--import">
+            <button class="btn" id="btn-import-merge" type="button">Import (merge)</button>
+            <button class="btn btn-danger" id="btn-import-replace" type="button">Import (replace)</button>
           </div>
         </div>
         <div class="settings-section">
@@ -166,6 +185,8 @@
       </div>
     </div>
   </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <script type="module" src="/src/main.js"></script>
 </body>

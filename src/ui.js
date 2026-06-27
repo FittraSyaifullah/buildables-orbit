@@ -17,14 +17,25 @@ import {
 } from './synopsis.js';
 import { searchPlaces } from './geocode.js';
 
-export function buildLegend(partners, activeFilter, onFilter) {
+export function buildLegend(partners, activeFilter, searchQuery, onFilter) {
   const el = document.getElementById('legend');
   const counts = Object.fromEntries(
     Object.keys(PARTNER_TYPES).map((key) => [key, partners.filter((p) => p.type === key).length]),
   );
 
+  const allActive = !activeFilter;
+  const filterHint = searchQuery?.trim()
+    ? `<div class="legend-meta">${partners.length} total · search active</div>`
+    : '';
+
   el.innerHTML =
+    filterHint +
     '<div class="legend-title">Filter by type</div>' +
+    `<button type="button" class="legend-item${allActive ? ' legend-item--active' : ''}" data-type="">
+      <span class="legend-dot legend-dot--all"></span>
+      <span class="legend-label">All types</span>
+      <span class="legend-count">${partners.length}</span>
+    </button>` +
     Object.entries(PARTNER_TYPES)
       .map(([key, { label, color }]) => {
         const count = counts[key] || 0;
@@ -38,7 +49,7 @@ export function buildLegend(partners, activeFilter, onFilter) {
       .join('');
 
   el.querySelectorAll('.legend-item:not([disabled])').forEach((btn) => {
-    btn.addEventListener('click', () => onFilter?.(btn.dataset.type));
+    btn.addEventListener('click', () => onFilter?.(btn.dataset.type || null));
   });
 }
 
@@ -54,6 +65,28 @@ export function createUI(handlers) {
   let formPendingSynopsis = null;
 
   const tooltip = document.getElementById('pin-tooltip');
+  let searchDebounce = null;
+
+  function showToast(message, type = 'info') {
+    const toast = document.getElementById('toast');
+    if (!toast) return;
+    toast.textContent = message;
+    toast.className = `toast toast--${type} toast--visible`;
+    clearTimeout(showToast._timer);
+    showToast._timer = setTimeout(() => toast.classList.remove('toast--visible'), 3200);
+  }
+
+  function setFormError(message) {
+    const el = document.getElementById('form-error');
+    if (!el) return;
+    if (message) {
+      el.textContent = message;
+      el.hidden = false;
+    } else {
+      el.hidden = true;
+      el.textContent = '';
+    }
+  }
 
   function updateSettingsStatus() {
     const el = document.getElementById('settings-synopsis-status');
@@ -76,8 +109,8 @@ export function createUI(handlers) {
     }
   }
 
-  function updateLegend(partnerList, activeFilter) {
-    buildLegend(partnerList, activeFilter, handlers.onTypeFilter);
+  function updateLegend(partnerList, activeFilter, query) {
+    buildLegend(partnerList, activeFilter, query, handlers.onTypeFilter);
   }
 
   function updatePartnerCount(visible, total) {
@@ -122,18 +155,9 @@ export function createUI(handlers) {
 
     document.getElementById('panel-body').innerHTML = `
       ${websiteHtml}
-      <div class="panel-section">
-        <div class="panel-section-label">Location</div>
-        <div class="panel-section-value">${escapeHtml(partner.location || '—')}</div>
-        <div class="coords">${partner.lat.toFixed(4)}°, ${partner.lng.toFixed(4)}°</div>
-      </div>
-      <div class="panel-section">
+      <div class="panel-section panel-section--highlight">
         <div class="panel-section-label">What we're partnering on</div>
         <div class="panel-section-value">${escapeHtml(partner.workingOn || '—')}</div>
-      </div>
-      <div class="panel-section">
-        <div class="panel-section-label">Tags</div>
-        ${tagsHtml}
       </div>
       <div class="panel-section">
         <div class="panel-section-label">Company synopsis</div>
@@ -141,6 +165,15 @@ export function createUI(handlers) {
         <button class="btn" id="btn-synopsis" type="button" style="margin-top:10px">
           ${cachedSynopsis && !cachedSynopsis.error ? 'Refresh synopsis' : 'Generate synopsis'}
         </button>
+      </div>
+      <div class="panel-section">
+        <div class="panel-section-label">Location</div>
+        <div class="panel-section-value">${escapeHtml(partner.location || '—')}</div>
+        <div class="coords">${partner.lat.toFixed(4)}°, ${partner.lng.toFixed(4)}°</div>
+      </div>
+      <div class="panel-section">
+        <div class="panel-section-label">Tags</div>
+        ${tagsHtml}
       </div>
       <div class="panel-actions">
         <button class="btn" id="btn-edit-partner" type="button">Edit</button>
@@ -242,8 +275,9 @@ export function createUI(handlers) {
     document.getElementById('geocode-results').innerHTML = '';
     formPendingSynopsis = partner?.synopsis || null;
     renderFormSynopsisPreview(formPendingSynopsis);
+    setFormError('');
     document.getElementById('form-modal-overlay').classList.add('open');
-    setTimeout(() => document.getElementById('form-name').focus(), 50);
+    setTimeout(() => document.getElementById(isEdit ? 'form-working' : 'form-name').focus(), 50);
   }
 
   async function runGeocode() {
@@ -291,27 +325,62 @@ export function createUI(handlers) {
 
   function closeForm() {
     formPendingSynopsis = null;
+    setFormError('');
     document.getElementById('form-modal-overlay').classList.remove('open');
   }
 
-  function saveForm(e) {
+  async function saveForm(e) {
     e.preventDefault();
     const existingId = document.getElementById('form-id').value;
     const isNew = !existingId;
+    const saveBtn = document.getElementById('form-save');
+
+    const name = document.getElementById('form-name').value.trim();
+    if (!name) {
+      setFormError('Company name is required.');
+      document.getElementById('form-name').focus();
+      return;
+    }
 
     const lat = parseFloat(document.getElementById('form-lat').value);
     const lng = parseFloat(document.getElementById('form-lng').value);
 
     if (Number.isNaN(lat) || Number.isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
-      alert('Enter valid coordinates (lat −90…90, lng −180…180).');
+      setFormError('Enter valid coordinates (lat −90…90, lng −180…180).');
       return;
     }
 
     const companyUrl = normalizeCompanyUrl(document.getElementById('form-url').value) || '';
+    setFormError('');
+
+    if (companyUrl && (!formPendingSynopsis || formPendingSynopsis.error)) {
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Analyzing company…';
+      document.getElementById('form-synopsis-preview').innerHTML =
+        '<div class="synopsis-box loading">Reading website and generating company synopsis…</div>';
+
+      const result = await generateCompanySynopsis(
+        {
+          name,
+          companyUrl,
+          location: document.getElementById('form-location').value.trim(),
+          type: document.getElementById('form-type').value,
+        },
+        { onNeedKeys: openSettings },
+      );
+
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Save partner';
+
+      if (result && !result.error) {
+        formPendingSynopsis = result;
+        renderFormSynopsisPreview(result);
+      }
+    }
 
     const partner = {
       id: existingId || handlers.generateId(),
-      name: document.getElementById('form-name').value.trim(),
+      name,
       type: document.getElementById('form-type').value,
       lat,
       lng,
@@ -334,6 +403,7 @@ export function createUI(handlers) {
 
     handlers.onSavePartner(partner, isNew);
     closeForm();
+    showToast(isNew ? `${name} added to the globe` : `${name} updated`, 'success');
     if (selectedPartnerId === partner.id || isNew) openPanel(partner.id);
   }
 
@@ -342,6 +412,7 @@ export function createUI(handlers) {
       getSynopsisCache().delete(partner.id);
       handlers.onDeletePartner(partner.id);
       closePanel();
+      showToast(`${partner.name} removed`, 'info');
     });
   }
 
@@ -375,12 +446,45 @@ export function createUI(handlers) {
   function handleHover(partner, x, y) {
     if (partner) {
       const typeLabel = PARTNER_TYPES[partner.type]?.label || partner.type;
-      tooltip.innerHTML = `<strong>${escapeHtml(partner.name)}</strong><span>${escapeHtml(typeLabel)}</span>`;
+      const workSnippet = partner.workingOn
+        ? `<span class="tooltip-work">${escapeHtml(partner.workingOn.length > 72 ? `${partner.workingOn.slice(0, 72)}…` : partner.workingOn)}</span>`
+        : '';
+      tooltip.innerHTML = `<strong>${escapeHtml(partner.name)}</strong><span>${escapeHtml(typeLabel)}</span>${workSnippet}`;
       tooltip.style.left = `${x}px`;
       tooltip.style.top = `${y}px`;
       tooltip.classList.add('visible');
     } else {
       tooltip.classList.remove('visible');
+    }
+  }
+
+  function setSearchQuery(value) {
+    const input = document.getElementById('partner-search');
+    if (input) input.value = value;
+  }
+
+  async function handleImport(replace) {
+    const input = document.getElementById('import-file');
+    const file = input.files?.[0];
+    if (!file) {
+      showToast('Choose a JSON file to import', 'error');
+      return;
+    }
+
+    try {
+      const count = await handlers.onImport(file, replace);
+      input.value = '';
+      closeSettings();
+      closePanel();
+      handlers.onImportComplete?.();
+      showToast(
+        replace ?
+          `Replaced data with ${count} imported partner${count === 1 ? '' : 's'}`
+        : `Imported ${count} partner${count === 1 ? '' : 's'}`,
+        'success',
+      );
+    } catch (err) {
+      showToast(err.message || 'Import failed', 'error');
     }
   }
 
@@ -416,7 +520,29 @@ export function createUI(handlers) {
       handlers.onResetData();
       closePanel();
       closeSettings();
+      showToast('Partner data reset to sample set', 'info');
     });
+  });
+
+  document.getElementById('btn-export').addEventListener('click', () => {
+    handlers.onExport?.();
+    showToast('Partners exported', 'success');
+  });
+
+  document.getElementById('btn-import-merge').addEventListener('click', () => handleImport(false));
+
+  document.getElementById('btn-import-replace').addEventListener('click', () => {
+    showConfirm('Replace all partner data with the imported file?', () => handleImport(true));
+  });
+
+  document.getElementById('import-file').addEventListener('change', () => {
+    const file = document.getElementById('import-file').files?.[0];
+    if (file) showToast(`Selected ${file.name}`, 'info');
+  });
+
+  document.getElementById('partner-search').addEventListener('input', (e) => {
+    clearTimeout(searchDebounce);
+    searchDebounce = setTimeout(() => handlers.onSearch?.(e.target.value), 180);
   });
 
   document.getElementById('confirm-cancel').addEventListener('click', closeConfirm);
@@ -426,11 +552,21 @@ export function createUI(handlers) {
   });
 
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-      closePanel();
-      closeForm();
-      closeSettings();
+    if (e.key !== 'Escape') return;
+    if (document.getElementById('confirm-modal-overlay').classList.contains('open')) {
       closeConfirm();
+      return;
+    }
+    if (document.getElementById('form-modal-overlay').classList.contains('open')) {
+      closeForm();
+      return;
+    }
+    if (document.getElementById('settings-modal-overlay').classList.contains('open')) {
+      closeSettings();
+      return;
+    }
+    if (document.getElementById('detail-panel').classList.contains('open')) {
+      closePanel();
     }
   });
 
@@ -441,5 +577,6 @@ export function createUI(handlers) {
     updateSettingsStatus,
     updateLegend,
     updatePartnerCount,
+    setSearchQuery,
   };
 }
