@@ -19,3 +19,20 @@ export function normalizeCompanyUrl(input) {
     return null;
   }
 }
+
+export function isValidCoords(lat, lng) {
+  const la = Number(lat);
+  const ln = Number(lng);
+  return (
+    !Number.isNaN(la) &&
+    !Number.isNaN(ln) &&
+    la >= -90 &&
+    la <= 90 &&
+    ln >= -180 &&
+    ln <= 180
+  );
+}
+
+export function formatCoord(value) {
+  return Number(value).toFixed(6);
+}

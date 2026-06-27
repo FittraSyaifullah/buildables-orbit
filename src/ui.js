@@ -1,5 +1,5 @@
 import { PARTNER_TYPES } from './constants.js';
-import { escapeHtml, normalizeCompanyUrl } from './utils.js';
+import { escapeHtml, normalizeCompanyUrl, isValidCoords, formatCoord } from './utils.js';
 import { flyToPartner } from './map.js';
 import {
   isSynopsisViaServer,
@@ -208,7 +208,19 @@ export function createUI(handlers) {
       contentEl.innerHTML = renderSynopsis(result);
       btn.textContent = 'Refresh synopsis';
       if (!result.error) {
-        handlers.onSavePartner({ ...partner, synopsis: result }, false);
+        const coords = await geocodeFromAnalysis(result, {
+          name: partner.name,
+          location: partner.location,
+        });
+        const updates = { ...partner, synopsis: result };
+        if (coords) {
+          updates.lat = coords.lat;
+          updates.lng = coords.lng;
+          updates.location = coords.label || partner.location;
+        } else if (result.location && !partner.location) {
+          updates.location = result.location;
+        }
+        handlers.onSavePartner(updates, false);
       }
     }
 
@@ -219,30 +231,68 @@ export function createUI(handlers) {
     document.getElementById('form-synopsis-preview').innerHTML = renderSynopsis(data);
   }
 
-  function applyAnalyzeResult(result) {
-    if (!result || result.error) return;
+  function setFormCoordinates(lat, lng, label) {
+    document.getElementById('form-lat').value = formatCoord(lat);
+    document.getElementById('form-lng').value = formatCoord(lng);
+    if (label) document.getElementById('form-location').value = label;
+  }
+
+  async function geocodeFromAnalysis(result, { name = '', location = '' } = {}) {
+    if (isValidCoords(result?.lat, result?.lng)) {
+      return {
+        lat: Number(result.lat),
+        lng: Number(result.lng),
+        label: result.location || location || '',
+      };
+    }
+
+    const queries = [result?.locationQuery, result?.location, location, name ? `${name} headquarters` : '', name]
+      .map((q) => String(q || '').trim())
+      .filter(Boolean);
+
+    const seen = new Set();
+    for (const query of queries) {
+      const key = query.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      try {
+        const results = await searchPlaces(query);
+        if (results[0]) {
+          return { lat: results[0].lat, lng: results[0].lng, label: results[0].label };
+        }
+      } catch {
+        // try next query
+      }
+    }
+    return null;
+  }
+
+  async function resolveFormCoordinates(result) {
+    return geocodeFromAnalysis(result, {
+      name: document.getElementById('form-name').value.trim(),
+      location: document.getElementById('form-location').value.trim(),
+    });
+  }
+
+  async function applyAnalyzeResult(result) {
+    if (!result || result.error) return false;
 
     formPendingSynopsis = result;
     renderFormSynopsisPreview(result);
 
     const resultsEl = document.getElementById('geocode-results');
-    const hasCoords =
-      result.lat != null &&
-      result.lng != null &&
-      !Number.isNaN(Number(result.lat)) &&
-      !Number.isNaN(Number(result.lng));
+    resultsEl.innerHTML = '<p class="form-hint">Resolving headquarters coordinates…</p>';
 
-    if (hasCoords) {
-      document.getElementById('form-lat').value = result.lat;
-      document.getElementById('form-lng').value = result.lng;
-      if (result.location) {
-        document.getElementById('form-location').value = result.location;
-      }
-      resultsEl.innerHTML = `<p class="form-hint form-hint--ok">Location set from analysis: ${Number(result.lat).toFixed(4)}°, ${Number(result.lng).toFixed(4)}°</p>`;
-    } else {
-      resultsEl.innerHTML =
-        '<p class="form-hint">Headquarters not detected — use Look up or click the globe for coordinates.</p>';
+    const coords = await resolveFormCoordinates(result);
+    if (coords) {
+      setFormCoordinates(coords.lat, coords.lng, coords.label);
+      resultsEl.innerHTML = `<p class="form-hint form-hint--ok">Location set: ${coords.label || 'Coordinates resolved'} (${formatCoord(coords.lat)}°, ${formatCoord(coords.lng)}°)</p>`;
+      return true;
     }
+
+    resultsEl.innerHTML =
+      '<p class="form-hint form-hint--error">Could not resolve coordinates — enter a place and click Look up, or click the globe.</p>';
+    return false;
   }
 
   async function runCompanyAnalyze() {
@@ -283,7 +333,7 @@ export function createUI(handlers) {
     btn.disabled = false;
 
     if (result) {
-      applyAnalyzeResult(result);
+      await applyAnalyzeResult(result);
     }
   }
 
@@ -295,8 +345,10 @@ export function createUI(handlers) {
     document.getElementById('form-url').value = partner?.companyUrl || '';
     document.getElementById('form-type').value = partner?.type || 'client';
     document.getElementById('form-location').value = partner?.location || '';
-    document.getElementById('form-lat').value = partner?.lat ?? lat ?? '';
-    document.getElementById('form-lng').value = partner?.lng ?? lng ?? '';
+    document.getElementById('form-lat').value =
+      partner?.lat != null ? formatCoord(partner.lat) : lat != null && lat !== '' ? formatCoord(lat) : '';
+    document.getElementById('form-lng').value =
+      partner?.lng != null ? formatCoord(partner.lng) : lng != null && lng !== '' ? formatCoord(lng) : '';
     document.getElementById('form-working').value = partner?.workingOn || '';
     document.getElementById('form-tags').value = (partner?.tags || []).join(', ');
     document.getElementById('geocode-results').innerHTML = '';
@@ -340,9 +392,8 @@ export function createUI(handlers) {
         btn.addEventListener('click', () => {
           const r = results[Number(btn.dataset.idx)];
           input.value = r.label;
-          document.getElementById('form-lat').value = r.lat;
-          document.getElementById('form-lng').value = r.lng;
-          resultsEl.innerHTML = '';
+          setFormCoordinates(r.lat, r.lng, r.label);
+          resultsEl.innerHTML = `<p class="form-hint form-hint--ok">Location selected: ${formatCoord(r.lat)}°, ${formatCoord(r.lng)}°</p>`;
         });
       });
     } catch (err) {
@@ -392,14 +443,14 @@ export function createUI(handlers) {
       saveBtn.textContent = 'Save partner';
 
       if (result && !result.error) {
-        applyAnalyzeResult(result);
+        await applyAnalyzeResult(result);
       }
     }
 
     const lat = parseFloat(document.getElementById('form-lat').value);
     const lng = parseFloat(document.getElementById('form-lng').value);
 
-    if (Number.isNaN(lat) || Number.isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+    if (!isValidCoords(lat, lng)) {
       setFormError('Valid coordinates required. Analyze the website or use Look up / click the globe.');
       return;
     }

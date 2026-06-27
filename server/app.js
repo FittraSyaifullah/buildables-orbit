@@ -34,18 +34,60 @@ function parseMistralJson(content) {
   return JSON.parse(raw);
 }
 
+function cleanLocationQuery(value) {
+  const text = String(value || '').trim();
+  if (!text || /^(unknown|n\/a|not found|empty string|null|none|—|-)$/i.test(text)) return '';
+  return text;
+}
+
+function parseCompanyAnalysis(content) {
+  try {
+    const parsed = parseMistralJson(content);
+    return {
+      synopsis: String(parsed.synopsis || parsed.summary || '').trim(),
+      locationQuery: cleanLocationQuery(parsed.locationQuery || parsed.location || parsed.headquarters),
+    };
+  } catch {
+    const trimmed = String(content || '').trim();
+    if (!trimmed) return { synopsis: '', locationQuery: '' };
+    return { synopsis: trimmed, locationQuery: '' };
+  }
+}
+
+const GEOCODE_TYPE_PRIORITY = {
+  address: 0,
+  poi: 1,
+  neighborhood: 2,
+  locality: 3,
+  place: 4,
+  district: 5,
+  region: 6,
+  country: 7,
+};
+
+function pickBestGeocodeFeature(features) {
+  if (!features?.length) return null;
+  return [...features].sort((a, b) => {
+    const rank = (feature) => {
+      const type = feature.place_type?.[0] || '';
+      return GEOCODE_TYPE_PRIORITY[type] ?? 99;
+    };
+    return rank(a) - rank(b);
+  })[0];
+}
+
 async function geocodePlace(token, query) {
   if (!token || !query?.trim()) return null;
 
   const url =
     `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query.trim())}.json` +
-    `?access_token=${token}&limit=1&types=place,locality,region,country,address,poi`;
+    `?access_token=${token}&limit=5&types=place,locality,neighborhood,district,region,country,address,poi`;
 
   const geoRes = await fetch(url);
   if (!geoRes.ok) return null;
 
   const geoData = await geoRes.json();
-  const feature = geoData.features?.[0];
+  const feature = pickBestGeocodeFeature(geoData.features);
   if (!feature?.center) return null;
 
   return {
@@ -55,8 +97,14 @@ async function geocodePlace(token, query) {
   };
 }
 
-async function resolveCompanyLocation(token, { name, locationQuery }) {
-  const queries = [locationQuery, name ? `${name} headquarters` : '', name]
+async function resolveCompanyLocation(token, { name, locationQuery, fallbackLocation }) {
+  const queries = [
+    locationQuery,
+    fallbackLocation,
+    name ? `${name} headquarters` : '',
+    name ? `${name} office` : '',
+    name,
+  ]
     .map((q) => String(q || '').trim())
     .filter(Boolean);
 
@@ -325,14 +373,8 @@ export function createApp() {
       }
 
       if (companyOnly) {
-        let parsed;
-        try {
-          parsed = parseMistralJson(rawContent);
-        } catch {
-          return res.status(502).json({ error: 'Could not parse company analysis. Try again.' });
-        }
-
-        const text = parsed.synopsis?.trim();
+        const parsed = parseCompanyAnalysis(rawContent);
+        const text = parsed.synopsis;
         if (!text) {
           return res.status(502).json({ error: 'Mistral returned an empty company synopsis.' });
         }
@@ -341,12 +383,14 @@ export function createApp() {
         const geo = await resolveCompanyLocation(mapboxToken, {
           name,
           locationQuery: parsed.locationQuery,
+          fallbackLocation: location,
         });
 
         return res.json({
           text,
           source: sourceUrl,
-          location: geo?.label || '',
+          locationQuery: parsed.locationQuery,
+          location: geo?.label || parsed.locationQuery || location || '',
           lat: geo?.lat ?? null,
           lng: geo?.lng ?? null,
         });

@@ -79,9 +79,10 @@ async function requestSynopsis(payload, { onNeedKeys } = {}) {
   return {
     text: data.text,
     source: data.source,
+    locationQuery: data.locationQuery || '',
     location: data.location || '',
-    lat: data.lat ?? null,
-    lng: data.lng ?? null,
+    lat: data.lat != null ? Number(data.lat) : null,
+    lng: data.lng != null ? Number(data.lng) : null,
   };
 }
 
