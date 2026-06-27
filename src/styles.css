@@ -97,12 +97,9 @@ html, body {
 .header {
   position: fixed; top: 0; left: 0; right: 0; z-index: 10;
   display: flex; align-items: center; justify-content: space-between;
-  padding: 12px 20px;
+  padding: 16px 20px;
   pointer-events: none;
   gap: 16px;
-  background: rgba(255, 255, 255, 0.88);
-  backdrop-filter: blur(10px);
-  border-bottom: 1px solid rgba(226, 232, 240, 0.8);
 }
 .header > * { pointer-events: auto; }
 .header-start {
@@ -114,16 +111,22 @@ html, body {
   font-weight: 700; font-size: 1.125rem;
   letter-spacing: -0.02em;
   white-space: nowrap;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55), 0 0 12px rgba(0, 0, 0, 0.35);
 }
-.logo span { color: var(--text-muted); font-weight: 500; }
+.logo span { color: rgba(255, 255, 255, 0.82); font-weight: 500; }
 
 .partner-count {
   font-size: 0.75rem;
-  color: var(--text-muted);
+  color: rgba(255, 255, 255, 0.9);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
   white-space: nowrap;
 }
 
 .header-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.header-actions .btn {
+  box-shadow: var(--shadow);
+}
 
 .btn {
   font-family: var(--font-body);
