@@ -65,15 +65,32 @@ const GEOCODE_TYPE_PRIORITY = {
   country: 7,
 };
 
+function featuresToResults(features) {
+  return [...(features || [])]
+    .sort((a, b) => {
+      const rank = (feature) => GEOCODE_TYPE_PRIORITY[feature.place_type?.[0]] ?? 99;
+      return rank(a) - rank(b);
+    })
+    .map((f) => ({
+      label: f.place_name,
+      lat: f.center[1],
+      lng: f.center[0],
+    }));
+}
+
 function pickBestGeocodeFeature(features) {
-  if (!features?.length) return null;
-  return [...features].sort((a, b) => {
-    const rank = (feature) => {
-      const type = feature.place_type?.[0] || '';
-      return GEOCODE_TYPE_PRIORITY[type] ?? 99;
-    };
+  const sorted = featuresToResults(features);
+  if (!sorted.length) return null;
+  const feature = [...(features || [])].sort((a, b) => {
+    const rank = (f) => GEOCODE_TYPE_PRIORITY[f.place_type?.[0]] ?? 99;
     return rank(a) - rank(b);
   })[0];
+  if (!feature?.center) return null;
+  return {
+    label: feature.place_name,
+    lat: feature.center[1],
+    lng: feature.center[0],
+  };
 }
 
 async function geocodePlace(token, query) {
@@ -87,22 +104,114 @@ async function geocodePlace(token, query) {
   if (!geoRes.ok) return null;
 
   const geoData = await geoRes.json();
-  const feature = pickBestGeocodeFeature(geoData.features);
-  if (!feature?.center) return null;
-
-  return {
-    label: feature.place_name,
-    lat: feature.center[1],
-    lng: feature.center[0],
-  };
+  return pickBestGeocodeFeature(geoData.features);
 }
 
-async function resolveCompanyLocation(token, { name, locationQuery, fallbackLocation }) {
+async function callMistralChat(mistral, messages, maxTokens = 220) {
+  const mistralRes = await fetch('https://api.mistral.ai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${mistral}`,
+    },
+    body: JSON.stringify({
+      model: 'mistral-small-latest',
+      messages,
+      max_tokens: maxTokens,
+      temperature: 0.1,
+    }),
+  });
+
+  if (!mistralRes.ok) return null;
+  const data = await mistralRes.json();
+  return data.choices?.[0]?.message?.content?.trim() || null;
+}
+
+async function extractHeadquartersQuery(mistral, name, ...contextBlocks) {
+  const combined = contextBlocks.filter(Boolean).join('\n\n---\n\n').slice(0, 5000);
+  if (!combined.trim()) return '';
+
+  const raw = await callMistralChat(mistral, [
+    {
+      role: 'system',
+      content:
+        'Extract the company headquarters for geocoding. Respond ONLY with JSON: {"locationQuery":"City, Region, Country"} Use "" if unknown. Prefer HQ/main office over regional offices. Check contact/about/footer pages.',
+    },
+    {
+      role: 'user',
+      content: `Company: ${name}\n\nSources:\n${combined}\n\nReturn headquarters city, region, country.`,
+    },
+  ]);
+
+  if (!raw) return '';
+  try {
+    const parsed = parseMistralJson(raw);
+    return cleanLocationQuery(parsed.locationQuery || parsed.location || parsed.headquarters);
+  } catch {
+    return cleanLocationQuery(raw);
+  }
+}
+
+async function fetchExaSearchText(exa, query, numResults = 3) {
+  const searchRes = await fetch('https://api.exa.ai/search', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': exa,
+    },
+    body: JSON.stringify({
+      query,
+      numResults,
+      type: 'auto',
+      contents: { text: { maxCharacters: 1500 } },
+    }),
+  });
+
+  if (!searchRes.ok) return '';
+  const data = await searchRes.json();
+  return (data.results || [])
+    .map((r) => `Title: ${r.title || 'N/A'}\nURL: ${r.url || 'N/A'}\n${r.text || ''}`)
+    .join('\n\n---\n\n');
+}
+
+async function searchExaLocationContext(exa, name, companyUrl) {
+  let hostname = '';
+  try {
+    hostname = companyUrl ? new URL(companyUrl).hostname.replace(/^www\./, '') : '';
+  } catch {
+    hostname = '';
+  }
+
   const queries = [
+    hostname ? `${name} headquarters address contact site:${hostname}` : '',
+    `${name} company headquarters location address`,
+    `${name} head office city country`,
+  ].filter(Boolean);
+
+  for (const query of queries) {
+    const text = await fetchExaSearchText(exa, query, 2);
+    if (text) return text;
+  }
+  return '';
+}
+
+async function resolveCompanyLocation(token, { name, locationQuery, fallbackLocation, companyUrl }) {
+  let hostname = '';
+  try {
+    hostname = companyUrl ? new URL(companyUrl).hostname.replace(/^www\./, '') : '';
+  } catch {
+    hostname = '';
+  }
+
+  const queries = [
+    locationQuery && name ? `${name}, ${locationQuery}` : '',
     locationQuery,
+    name && locationQuery ? `${name} ${locationQuery}` : '',
+    fallbackLocation && name ? `${name}, ${fallbackLocation}` : '',
     fallbackLocation,
     name ? `${name} headquarters` : '',
-    name ? `${name} office` : '',
+    name ? `${name} head office` : '',
+    hostname && name ? `${name} ${hostname}` : '',
     name,
   ]
     .map((q) => String(q || '').trim())
@@ -179,11 +288,7 @@ export function createApp() {
       }
 
       const geoData = await geoRes.json();
-      const results = (geoData.features || []).map((f) => ({
-        label: f.place_name,
-        lat: f.center[1],
-        lng: f.center[0],
-      }));
+      const results = featuresToResults(geoData.features);
 
       res.json({ results });
     } catch (err) {
@@ -235,7 +340,7 @@ export function createApp() {
           },
           body: JSON.stringify({
             urls: [normalizedUrl],
-            text: { maxCharacters: 2500 },
+            text: { maxCharacters: 3500 },
           }),
         });
 
@@ -379,18 +484,33 @@ export function createApp() {
           return res.status(502).json({ error: 'Mistral returned an empty company synopsis.' });
         }
 
+        let locationQuery = parsed.locationQuery;
+        const resolvedUrl = companyUrl || sourceUrl || '';
+
+        if (!locationQuery && webContext) {
+          locationQuery = await extractHeadquartersQuery(mistral, name, webContext);
+        }
+
+        if (!locationQuery) {
+          const exaLocationContext = await searchExaLocationContext(exa, name, resolvedUrl);
+          if (exaLocationContext) {
+            locationQuery = await extractHeadquartersQuery(mistral, name, webContext, exaLocationContext);
+          }
+        }
+
         const mapboxToken = process.env.MAPBOX_ACCESS_TOKEN;
         const geo = await resolveCompanyLocation(mapboxToken, {
           name,
-          locationQuery: parsed.locationQuery,
+          locationQuery,
           fallbackLocation: location,
+          companyUrl: resolvedUrl,
         });
 
         return res.json({
           text,
           source: sourceUrl,
-          locationQuery: parsed.locationQuery,
-          location: geo?.label || parsed.locationQuery || location || '',
+          locationQuery,
+          location: geo?.label || locationQuery || location || '',
           lat: geo?.lat ?? null,
           lng: geo?.lng ?? null,
         });

@@ -211,6 +211,7 @@ export function createUI(handlers) {
         const coords = await geocodeFromAnalysis(result, {
           name: partner.name,
           location: partner.location,
+          companyUrl: partner.companyUrl || '',
         });
         const updates = { ...partner, synopsis: result };
         if (coords) {
@@ -237,7 +238,7 @@ export function createUI(handlers) {
     if (label) document.getElementById('form-location').value = label;
   }
 
-  async function geocodeFromAnalysis(result, { name = '', location = '' } = {}) {
+  async function geocodeFromAnalysis(result, { name = '', location = '', companyUrl = '' } = {}) {
     if (isValidCoords(result?.lat, result?.lng)) {
       return {
         lat: Number(result.lat),
@@ -246,7 +247,25 @@ export function createUI(handlers) {
       };
     }
 
-    const queries = [result?.locationQuery, result?.location, location, name ? `${name} headquarters` : '', name]
+    let hostname = '';
+    try {
+      hostname = companyUrl ? new URL(companyUrl).hostname.replace(/^www\./, '') : '';
+    } catch {
+      hostname = '';
+    }
+
+    const queries = [
+      result?.locationQuery && name ? `${name}, ${result.locationQuery}` : '',
+      result?.locationQuery,
+      name && result?.locationQuery ? `${name} ${result.locationQuery}` : '',
+      result?.location,
+      location && name ? `${name}, ${location}` : '',
+      location,
+      name ? `${name} headquarters` : '',
+      name ? `${name} head office` : '',
+      hostname && name ? `${name} ${hostname}` : '',
+      name,
+    ]
       .map((q) => String(q || '').trim())
       .filter(Boolean);
 
@@ -271,6 +290,7 @@ export function createUI(handlers) {
     return geocodeFromAnalysis(result, {
       name: document.getElementById('form-name').value.trim(),
       location: document.getElementById('form-location').value.trim(),
+      companyUrl: normalizeCompanyUrl(document.getElementById('form-url').value) || '',
     });
   }
 
