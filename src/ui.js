@@ -219,6 +219,32 @@ export function createUI(handlers) {
     document.getElementById('form-synopsis-preview').innerHTML = renderSynopsis(data);
   }
 
+  function applyAnalyzeResult(result) {
+    if (!result || result.error) return;
+
+    formPendingSynopsis = result;
+    renderFormSynopsisPreview(result);
+
+    const resultsEl = document.getElementById('geocode-results');
+    const hasCoords =
+      result.lat != null &&
+      result.lng != null &&
+      !Number.isNaN(Number(result.lat)) &&
+      !Number.isNaN(Number(result.lng));
+
+    if (hasCoords) {
+      document.getElementById('form-lat').value = result.lat;
+      document.getElementById('form-lng').value = result.lng;
+      if (result.location) {
+        document.getElementById('form-location').value = result.location;
+      }
+      resultsEl.innerHTML = `<p class="form-hint form-hint--ok">Location set from analysis: ${Number(result.lat).toFixed(4)}°, ${Number(result.lng).toFixed(4)}°</p>`;
+    } else {
+      resultsEl.innerHTML =
+        '<p class="form-hint">Headquarters not detected — use Look up or click the globe for coordinates.</p>';
+    }
+  }
+
   async function runCompanyAnalyze() {
     const name = document.getElementById('form-name').value.trim();
     const urlInput = document.getElementById('form-url').value.trim();
@@ -240,7 +266,9 @@ export function createUI(handlers) {
 
     document.getElementById('form-url').value = companyUrl;
     btn.disabled = true;
-    preview.innerHTML = '<div class="synopsis-box loading">Reading website and generating company synopsis…</div>';
+    preview.innerHTML =
+      '<div class="synopsis-box loading">Analyzing company, synopsis, and headquarters location…</div>';
+    document.getElementById('geocode-results').innerHTML = '<p class="form-hint">Locating company on the globe…</p>';
 
     const result = await generateCompanySynopsis(
       {
@@ -255,8 +283,7 @@ export function createUI(handlers) {
     btn.disabled = false;
 
     if (result) {
-      formPendingSynopsis = result;
-      renderFormSynopsisPreview(result);
+      applyAnalyzeResult(result);
     }
   }
 
@@ -342,14 +369,6 @@ export function createUI(handlers) {
       return;
     }
 
-    const lat = parseFloat(document.getElementById('form-lat').value);
-    const lng = parseFloat(document.getElementById('form-lng').value);
-
-    if (Number.isNaN(lat) || Number.isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
-      setFormError('Enter valid coordinates (lat −90…90, lng −180…180).');
-      return;
-    }
-
     const companyUrl = normalizeCompanyUrl(document.getElementById('form-url').value) || '';
     setFormError('');
 
@@ -357,7 +376,7 @@ export function createUI(handlers) {
       saveBtn.disabled = true;
       saveBtn.textContent = 'Analyzing company…';
       document.getElementById('form-synopsis-preview').innerHTML =
-        '<div class="synopsis-box loading">Reading website and generating company synopsis…</div>';
+        '<div class="synopsis-box loading">Analyzing company, synopsis, and headquarters location…</div>';
 
       const result = await generateCompanySynopsis(
         {
@@ -373,9 +392,16 @@ export function createUI(handlers) {
       saveBtn.textContent = 'Save partner';
 
       if (result && !result.error) {
-        formPendingSynopsis = result;
-        renderFormSynopsisPreview(result);
+        applyAnalyzeResult(result);
       }
+    }
+
+    const lat = parseFloat(document.getElementById('form-lat').value);
+    const lng = parseFloat(document.getElementById('form-lng').value);
+
+    if (Number.isNaN(lat) || Number.isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      setFormError('Valid coordinates required. Analyze the website or use Look up / click the globe.');
+      return;
     }
 
     const partner = {

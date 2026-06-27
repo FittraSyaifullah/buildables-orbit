@@ -27,6 +27,51 @@ function buildPartnerContext({ type, workingOn, tags }) {
   return lines.length ? lines.join('\n') : '';
 }
 
+function parseMistralJson(content) {
+  const trimmed = String(content || '').trim();
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const raw = fenced ? fenced[1].trim() : trimmed;
+  return JSON.parse(raw);
+}
+
+async function geocodePlace(token, query) {
+  if (!token || !query?.trim()) return null;
+
+  const url =
+    `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query.trim())}.json` +
+    `?access_token=${token}&limit=1&types=place,locality,region,country,address,poi`;
+
+  const geoRes = await fetch(url);
+  if (!geoRes.ok) return null;
+
+  const geoData = await geoRes.json();
+  const feature = geoData.features?.[0];
+  if (!feature?.center) return null;
+
+  return {
+    label: feature.place_name,
+    lat: feature.center[1],
+    lng: feature.center[0],
+  };
+}
+
+async function resolveCompanyLocation(token, { name, locationQuery }) {
+  const queries = [locationQuery, name ? `${name} headquarters` : '', name]
+    .map((q) => String(q || '').trim())
+    .filter(Boolean);
+
+  const seen = new Set();
+  for (const query of queries) {
+    const key = query.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const result = await geocodePlace(token, query);
+    if (result) return result;
+  }
+
+  return null;
+}
+
 export function createApp() {
   const app = express();
 
@@ -232,9 +277,10 @@ export function createApp() {
 
       const userContent = companyOnly
         ? [
-            `Write a company synopsis for "${name}"${location ? ` (${location})` : ''}.`,
-            'Describe what the company does, their industry, products/services, and scale if known.',
-            'Do not describe partnerships or client relationships — only public company facts.',
+            `Analyze "${name}"${location ? ` (${location})` : ''} from the website content below.`,
+            'Return JSON with:',
+            '- synopsis: 2-4 factual sentences on what the company does (industry, products/services, scale if known). No partnership language.',
+            '- locationQuery: headquarters as "City, Region, Country" for geocoding, or "" if not found in the content.',
             webContext ? `\nWebsite content:\n${webContext}` : '\nNo website content found.',
           ].join('\n')
         : [
@@ -244,7 +290,7 @@ export function createApp() {
           ].join('');
 
       const systemContent = companyOnly
-        ? 'You write brief, factual company synopses in 2-4 sentences from website content. Only state facts supported by the inputs. No marketing language. Do not mention partnerships.'
+        ? 'You analyze company websites. Respond with ONLY valid JSON (no markdown): {"synopsis":"...","locationQuery":"City, Region, Country or empty string"}. Use only facts supported by the inputs.'
         : 'You write brief, factual partner synopses in 2-4 sentences. Combine public company facts from web results with internal partnership context when provided. Only state facts supported by the inputs. No marketing language.';
 
       const mistralRes = await fetch('https://api.mistral.ai/v1/chat/completions', {
@@ -259,7 +305,7 @@ export function createApp() {
             { role: 'system', content: systemContent },
             { role: 'user', content: userContent },
           ],
-          max_tokens: 250,
+          max_tokens: companyOnly ? 320 : 250,
           temperature: 0.3,
         }),
       });
@@ -272,11 +318,41 @@ export function createApp() {
       }
 
       const mistralData = await mistralRes.json();
-      const text = mistralData.choices?.[0]?.message?.content?.trim();
+      const rawContent = mistralData.choices?.[0]?.message?.content?.trim();
 
-      if (!text) {
+      if (!rawContent) {
         return res.status(502).json({ error: 'Mistral returned an empty summary.' });
       }
+
+      if (companyOnly) {
+        let parsed;
+        try {
+          parsed = parseMistralJson(rawContent);
+        } catch {
+          return res.status(502).json({ error: 'Could not parse company analysis. Try again.' });
+        }
+
+        const text = parsed.synopsis?.trim();
+        if (!text) {
+          return res.status(502).json({ error: 'Mistral returned an empty company synopsis.' });
+        }
+
+        const mapboxToken = process.env.MAPBOX_ACCESS_TOKEN;
+        const geo = await resolveCompanyLocation(mapboxToken, {
+          name,
+          locationQuery: parsed.locationQuery,
+        });
+
+        return res.json({
+          text,
+          source: sourceUrl,
+          location: geo?.label || '',
+          lat: geo?.lat ?? null,
+          lng: geo?.lng ?? null,
+        });
+      }
+
+      const text = rawContent;
 
       res.json({ text, source: sourceUrl });
     } catch (err) {

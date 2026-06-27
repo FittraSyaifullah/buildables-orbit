@@ -468,6 +468,7 @@ html, body {
   margin-top: 4px;
 }
 .form-hint--error { color: #dc2626; }
+.form-hint--ok { color: #047857; }
 .form-error {
   font-size: 0.8125rem;
   color: #dc2626;

@@ -76,7 +76,13 @@ async function requestSynopsis(payload, { onNeedKeys } = {}) {
     return { error: data.error || `Request failed (${res.status})` };
   }
 
-  return { text: data.text, source: data.source };
+  return {
+    text: data.text,
+    source: data.source,
+    location: data.location || '',
+    lat: data.lat ?? null,
+    lng: data.lng ?? null,
+  };
 }
 
 export async function generateCompanySynopsis({ name, companyUrl, location, type }, { onNeedKeys } = {}) {
